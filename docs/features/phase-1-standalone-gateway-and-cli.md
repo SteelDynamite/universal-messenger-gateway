@@ -33,4 +33,5 @@ Related: [0001](../decisions/0001-extract-transport-layer-as-a-standalone-gatewa
 [0005](../decisions/0005-use-stdio-json-lines-for-gateway-io.md),
 [0006](../decisions/0006-compile-first-party-transports-together.md),
 [0007](../decisions/0007-use-repo-local-state-dir-for-phase-1.md),
-[0008](../decisions/0008-use-one-gateway-per-agent.md).
+[0008](../decisions/0008-use-one-gateway-per-agent.md),
+[0009](../decisions/0009-use-matrix-bot-sdk-for-first-matrix-transport.md).

@@ -1,8 +1,16 @@
 import type { GatewayConfig, TransportConfig } from "../config.js";
 import type { TransportName } from "../protocol.js";
 import type { TransportProvider } from "./interface.js";
+import { createMatrixProvider } from "./matrix.js";
 
-export type TransportFactory = (config: TransportConfig) => TransportProvider;
+export type TransportFactoryContext = {
+  stateDir: string;
+};
+
+export type TransportFactory = (
+  config: TransportConfig,
+  context: TransportFactoryContext,
+) => TransportProvider;
 export type TransportRegistry = Partial<
   Record<TransportName, TransportFactory>
 >;
@@ -14,10 +22,13 @@ export class UnavailableTransportError extends Error {
   }
 }
 
-export const defaultTransportRegistry: TransportRegistry = {};
+export const defaultTransportRegistry: TransportRegistry = {
+  matrix: createMatrixProvider,
+};
 
 export function createConfiguredTransports(
   config: GatewayConfig,
+  context: TransportFactoryContext,
   registry: TransportRegistry = defaultTransportRegistry,
 ): TransportProvider[] {
   const transports: TransportProvider[] = [];
@@ -35,7 +46,7 @@ export function createConfiguredTransports(
       throw new UnavailableTransportError(transport as TransportName);
     }
 
-    transports.push(factory(transportConfig));
+    transports.push(factory(transportConfig, context));
   }
 
   return transports;

@@ -36,9 +36,16 @@ export type {
   TransportProvider,
 } from "./transports/interface.js";
 export {
+  createMatrixProvider,
+  MatrixConfigError,
+  MatrixProvider,
+  parseMatrixConfig,
+} from "./transports/matrix.js";
+export {
   createConfiguredTransports,
   defaultTransportRegistry,
   UnavailableTransportError,
   type TransportFactory,
+  type TransportFactoryContext,
   type TransportRegistry,
 } from "./transports/registry.js";

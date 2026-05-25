@@ -11,6 +11,9 @@ Project scaffold exists: `package.json`, `tsconfig`, `biome.json`, vitest config
 shell, `state/config.json` loading, and the minimal transport interface/manager seam.
 Matrix is the first real transport target. `matrix-utils.ts` is lifted first because it is
 pure and carries useful tests before SDK/crypto dependencies land.
+Matrix SDK integration is underway: storage belongs under `./state`, and authorization is
+not embedded in the transport.
+`matrix-bot-sdk` has inherited npm audit findings through `request`; see ADR 0009.
 
 ## Source to lift from
 

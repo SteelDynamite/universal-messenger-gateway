@@ -14,6 +14,9 @@ test("creates enabled transports from the registry", () => {
       },
     },
     {
+      stateDir: "/state",
+    },
+    {
       matrix: (config) => new FakeTransport("matrix", config.settings),
       slack: (config) => new FakeTransport("slack", config.settings),
     },
@@ -27,6 +30,7 @@ test("rejects enabled transports absent from the build registry", () => {
   expect(() =>
     createConfiguredTransports(
       { transports: { matrix: { enabled: true } } },
+      { stateDir: "/state" },
       {},
     ),
   ).toThrow(UnavailableTransportError);

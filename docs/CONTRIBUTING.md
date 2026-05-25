@@ -20,6 +20,7 @@ behavior is deferred until a concrete process-lifetime problem exists.
 Phase 1 runtime state defaults to `./state` and can be overridden with
 `UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR`. The intended shape is one gateway per agent.
 Transport config loads from `state/config.json`.
+Matrix uses `state/matrix-store.json` and `state/matrix-crypto/` for SDK and E2EE state.
 
 The standard I/O contract is the actual product — pin it before adding features. See the
 [glossary](GLOSSARY.md) for terms.

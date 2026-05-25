@@ -21,7 +21,9 @@ if (command === "gateway") {
   let manager: TransportManager;
 
   try {
-    manager = new TransportManager(createConfiguredTransports(config));
+    manager = new TransportManager(
+      createConfiguredTransports(config, { stateDir }),
+    );
   } catch (error) {
     if (error instanceof UnavailableTransportError) {
       process.stderr.write(`${error.message} (${stateDir})\n`);

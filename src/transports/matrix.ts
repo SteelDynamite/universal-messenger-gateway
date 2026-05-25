@@ -1,0 +1,351 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import type { ILogger } from "matrix-bot-sdk";
+import {
+  AutojoinRoomsMixin,
+  LogService,
+  MatrixClient,
+  RichConsoleLogger,
+  RustSdkCryptoStorageProvider,
+  SimpleFsStorageProvider,
+} from "matrix-bot-sdk";
+import type { TransportConfig } from "../config.js";
+import type { InboundMessage } from "../protocol.js";
+import type { TransportProvider } from "./interface.js";
+import {
+  ensureSelfCrossSigned,
+  readAccountPassword,
+  readRecoveryKey,
+} from "./matrix-crosssign.js";
+import {
+  type MatrixRoomEvent,
+  extractUsername,
+  formatForMatrix,
+  shouldSkipEvent,
+  stripBotMention,
+  wasBotMentioned,
+} from "./matrix-utils.js";
+
+type MatrixTransportConfig = {
+  homeserverUrl: string;
+  accessToken: string;
+  encryption?: boolean;
+  selfCrossSign?: boolean | "reset";
+  accountPassword?: string;
+  recoveryKey?: string;
+};
+
+type MatrixEvent = MatrixRoomEvent & {
+  event_id?: string;
+};
+
+export class MatrixConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MatrixConfigError";
+  }
+}
+
+export class MatrixProvider implements TransportProvider {
+  readonly type = "matrix";
+  readonly #config: MatrixTransportConfig;
+  readonly #stateDir: string;
+  #client: MatrixClient | undefined;
+  #isConnected = false;
+  #messageHandler?: (message: InboundMessage) => void;
+  #errorHandler?: (error: unknown) => void;
+  #botUserId: string | undefined;
+  #joinedRooms = new Set<string>();
+  #roomMemberCount = new Map<string, number>();
+  #connectedAt = 0;
+
+  constructor(config: MatrixTransportConfig, stateDir: string) {
+    this.#config = config;
+    this.#stateDir = stateDir;
+  }
+
+  get isConnected(): boolean {
+    return this.#isConnected;
+  }
+
+  async connect(): Promise<void> {
+    if (this.#isConnected) {
+      return;
+    }
+
+    await mkdir(this.#stateDir, { recursive: true });
+
+    const storage = new SimpleFsStorageProvider(
+      join(this.#stateDir, "matrix-store.json"),
+    );
+    let cryptoProvider: RustSdkCryptoStorageProvider | undefined;
+
+    if (this.#config.encryption !== false) {
+      try {
+        cryptoProvider = new RustSdkCryptoStorageProvider(
+          join(this.#stateDir, "matrix-crypto"),
+          0,
+        );
+      } catch (error) {
+        this.#errorHandler?.(error);
+      }
+    }
+
+    this.#client = new MatrixClient(
+      this.#config.homeserverUrl,
+      this.#config.accessToken,
+      storage,
+      cryptoProvider,
+    );
+
+    AutojoinRoomsMixin.setupOnClient(this.#client);
+    this.#botUserId = await this.#client.getUserId();
+    this.#connectedAt = Date.now();
+
+    this.#client.on("room.join", (roomId: string) => {
+      this.#joinedRooms.add(roomId);
+      this.#client
+        ?.getJoinedRoomMembers(roomId)
+        .then((members) => this.#roomMemberCount.set(roomId, members.length))
+        .catch(() => {});
+    });
+    this.#client.on("room.leave", (roomId: string) => {
+      this.#joinedRooms.delete(roomId);
+      this.#roomMemberCount.delete(roomId);
+    });
+    this.#client.on("room.message", (roomId: string, event: MatrixEvent) => {
+      void this.handleMessage(roomId, event).catch((error: unknown) => {
+        this.#errorHandler?.(error);
+      });
+    });
+
+    try {
+      const defaultLogger = new RichConsoleLogger();
+      LogService.setLogger(createSyncFilterLogger(defaultLogger));
+      await this.#client.start();
+      LogService.setLogger(defaultLogger);
+
+      if (cryptoProvider && this.#config.selfCrossSign !== false) {
+        await this.selfCrossSign();
+      }
+    } catch (error) {
+      this.resetClientState();
+      throw error;
+    }
+
+    const rooms = await this.#client.getJoinedRooms();
+    this.#joinedRooms = new Set(rooms);
+    await Promise.all(
+      rooms.map(async (roomId) => {
+        try {
+          const members = await this.#client?.getJoinedRoomMembers(roomId);
+          if (members) {
+            this.#roomMemberCount.set(roomId, members.length);
+          }
+        } catch {
+          // Cache miss can be filled on first message.
+        }
+      }),
+    );
+    this.#isConnected = true;
+  }
+
+  disconnect(): Promise<void> {
+    if (this.#client) {
+      this.#client.stop();
+    }
+    this.resetClientState();
+    return Promise.resolve();
+  }
+
+  async sendMessage(chatId: string, text: string): Promise<void> {
+    if (!this.#client) {
+      throw new Error("Matrix client not connected");
+    }
+    if (!text.trim()) {
+      return;
+    }
+
+    const { body, formattedBody } = formatForMatrix(text);
+    await this.#client.sendMessage(chatId, {
+      msgtype: "m.text",
+      body,
+      ...(formattedBody
+        ? { format: "org.matrix.custom.html", formatted_body: formattedBody }
+        : {}),
+    });
+  }
+
+  async sendTyping(chatId: string): Promise<void> {
+    try {
+      await this.#client?.setTyping(chatId, true, 10000);
+    } catch {
+      // Typing indicators are best effort.
+    }
+  }
+
+  onMessage(handler: (message: InboundMessage) => void): void {
+    this.#messageHandler = handler;
+  }
+
+  onError(handler: (error: unknown) => void): void {
+    this.#errorHandler = handler;
+  }
+
+  private async selfCrossSign(): Promise<void> {
+    if (!this.#client) {
+      return;
+    }
+
+    try {
+      const password = this.#config.accountPassword ?? readAccountPassword();
+      const recoveryKey = this.#config.recoveryKey ?? readRecoveryKey();
+      const result = await ensureSelfCrossSigned(this.#client, {
+        reset: this.#config.selfCrossSign === "reset",
+        ...(password ? { password } : {}),
+        ...(recoveryKey ? { recoveryKey } : {}),
+      });
+      if (result.status === "skipped" && result.reason) {
+        this.#errorHandler?.(
+          new Error(`Matrix cross-sign skipped: ${result.reason}`),
+        );
+      }
+    } catch (error) {
+      this.#errorHandler?.(error);
+    }
+  }
+
+  private async handleMessage(
+    roomId: string,
+    event: MatrixEvent,
+  ): Promise<void> {
+    if (!this.#client || !this.#botUserId) {
+      return;
+    }
+
+    const skipReason = shouldSkipEvent(
+      event,
+      this.#botUserId,
+      this.#connectedAt,
+      this.#joinedRooms,
+      roomId,
+    );
+    if (skipReason) {
+      return;
+    }
+
+    const messageText = event.content?.body;
+    const userId = event.sender;
+    if (!messageText || !userId) {
+      return;
+    }
+
+    let memberCount = this.#roomMemberCount.get(roomId);
+    if (memberCount === undefined) {
+      try {
+        const members = await this.#client.getJoinedRoomMembers(roomId);
+        memberCount = members.length;
+        this.#roomMemberCount.set(roomId, memberCount);
+      } catch {
+        memberCount = 2;
+      }
+    }
+
+    const isGroupChat = memberCount > 2;
+    const wasMentioned = isGroupChat
+      ? wasBotMentioned(messageText, this.#botUserId)
+      : false;
+    const content = wasMentioned
+      ? stripBotMention(messageText, this.#botUserId)
+      : messageText;
+
+    if (!content) {
+      return;
+    }
+
+    this.#messageHandler?.({
+      chatId: roomId,
+      transport: this.type,
+      content,
+      username: extractUsername(userId),
+      userId,
+      timestamp: event.origin_server_ts ?? Date.now(),
+      isGroupChat,
+      wasMentioned,
+      ...(event.event_id ? { messageId: event.event_id } : {}),
+    });
+  }
+
+  private resetClientState(): void {
+    this.#client = undefined;
+    this.#isConnected = false;
+    this.#botUserId = undefined;
+    this.#joinedRooms.clear();
+    this.#roomMemberCount.clear();
+    this.#connectedAt = 0;
+  }
+}
+
+export function createMatrixProvider(
+  config: TransportConfig,
+  context: { stateDir: string },
+): MatrixProvider {
+  return new MatrixProvider(parseMatrixConfig(config), context.stateDir);
+}
+
+export function parseMatrixConfig(
+  config: TransportConfig,
+): MatrixTransportConfig {
+  const settings = config.settings ?? {};
+  const homeserverUrl = settings.homeserverUrl;
+  const accessToken = settings.accessToken;
+
+  if (typeof homeserverUrl !== "string" || !homeserverUrl) {
+    throw new MatrixConfigError("Matrix settings.homeserverUrl is required");
+  }
+  if (typeof accessToken !== "string" || !accessToken) {
+    throw new MatrixConfigError("Matrix settings.accessToken is required");
+  }
+
+  return {
+    homeserverUrl,
+    accessToken,
+    ...(typeof settings.encryption === "boolean"
+      ? { encryption: settings.encryption }
+      : {}),
+    ...(settings.selfCrossSign === "reset" ||
+    typeof settings.selfCrossSign === "boolean"
+      ? { selfCrossSign: settings.selfCrossSign }
+      : {}),
+    ...(typeof settings.accountPassword === "string"
+      ? { accountPassword: settings.accountPassword }
+      : {}),
+    ...(typeof settings.recoveryKey === "string"
+      ? { recoveryKey: settings.recoveryKey }
+      : {}),
+  };
+}
+
+function createSyncFilterLogger(defaultLogger: ILogger): ILogger {
+  return {
+    info: (module, ...args) => defaultLogger.info(module, ...args),
+    warn: (module, ...args) => defaultLogger.warn(module, ...args),
+    debug: (module, ...args) => defaultLogger.debug(module, ...args),
+    trace: (module, ...args) => defaultLogger.trace(module, ...args),
+    error: (module, ...args) => {
+      const message = args
+        .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
+        .join(" ");
+      if (
+        module === "MatrixClientLite" &&
+        message.includes("Decryption error")
+      ) {
+        return;
+      }
+      if (module === "MatrixHttpClient" && message.includes("M_NOT_FOUND")) {
+        return;
+      }
+      defaultLogger.error(module, ...args);
+    },
+  };
+}
