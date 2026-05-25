@@ -23,4 +23,6 @@ Early — scaffolding. See the phased plan for scope.
 
 ## License
 
-TBD.
+MIT — see [LICENSE](LICENSE). Derived in part from
+[pi-messenger-bridge](https://github.com/tintinweb/pi-messenger-bridge) (MIT); upstream
+attribution is preserved on the transport-layer code as it is imported.
