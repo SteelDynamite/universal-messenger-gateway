@@ -15,8 +15,13 @@ Stand up the gateway as a standalone service driven by a cli, with no bot attach
   inbound messages, accept "send message" / "send typing" commands.
 - Build the cli: connect over the standard I/O, render inbound, send outbound — exercise a
   live transport with no bot.
+- Add an [interactive dev chat cli](interactive-dev-chat-cli.md) for manual live transport
+  testing without hand-written JSON-lines.
 - Re-home the admin surface (connect / disconnect / configure / status) as cli
   subcommands; drop the interactive menu and widget.
+
+Longer-term chat-client behavior is tracked separately in the
+[client capability backlog](client-capability-backlog.md).
 
 ## Open decisions
 
@@ -27,7 +32,8 @@ None.
 The cli round-trips a real message on at least one transport — inbound rendered, outbound
 delivered, encryption intact where the platform has it — with no bot involved.
 
-Related: [0001](../decisions/0001-extract-transport-layer-as-a-standalone-gateway.md),
+Related: 
+[0001](../decisions/0001-extract-transport-layer-as-a-standalone-gateway.md),
 [0003](../decisions/0003-standard-io-is-the-product-cli-driven-development.md),
 [0004](../decisions/0004-standard-gateway-envelope.md),
 [0005](../decisions/0005-use-stdio-json-lines-for-gateway-io.md),

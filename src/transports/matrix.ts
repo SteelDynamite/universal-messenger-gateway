@@ -198,8 +198,10 @@ export class MatrixProvider implements TransportProvider {
     }
 
     try {
-      const password = this.#config.accountPassword ?? readAccountPassword();
-      const recoveryKey = this.#config.recoveryKey ?? readRecoveryKey();
+      const password =
+        this.#config.accountPassword ?? readAccountPassword(this.#stateDir);
+      const recoveryKey =
+        this.#config.recoveryKey ?? readRecoveryKey(this.#stateDir);
       const result = await ensureSelfCrossSigned(this.#client, {
         reset: this.#config.selfCrossSign === "reset",
         ...(password ? { password } : {}),

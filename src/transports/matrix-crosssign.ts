@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import {
   SecretStorageItems,
@@ -95,30 +94,20 @@ const REQ_NAME: Record<number, string> = {
   [REQ_KEYS_BACKUP]: "KeysBackup",
 };
 
-export function readAccountPassword(): string | undefined {
+export function readAccountPassword(stateDir?: string): string | undefined {
   return readSecret(
     "UNIVERSAL_MESSENGER_GATEWAY_MATRIX_ACCOUNT_PASSWORD",
     "UNIVERSAL_MESSENGER_GATEWAY_MATRIX_PASSWORD_FILE",
-    path.join(
-      os.homedir(),
-      ".config",
-      "universal-messenger-gateway",
-      "matrix-password.txt",
-    ),
+    stateDir ? path.join(stateDir, "matrix-password.txt") : undefined,
     "password",
   );
 }
 
-export function readRecoveryKey(): string | undefined {
+export function readRecoveryKey(stateDir?: string): string | undefined {
   return readSecret(
     "UNIVERSAL_MESSENGER_GATEWAY_MATRIX_RECOVERY_KEY",
     "UNIVERSAL_MESSENGER_GATEWAY_MATRIX_RECOVERY_KEY_FILE",
-    path.join(
-      os.homedir(),
-      ".config",
-      "universal-messenger-gateway",
-      "matrix-recovery-key.txt",
-    ),
+    stateDir ? path.join(stateDir, "matrix-recovery-key.txt") : undefined,
     "recovery key",
   );
 }
@@ -235,7 +224,7 @@ export async function ensureSelfCrossSigned(
 function readSecret(
   envVar: string,
   fileEnvVar: string,
-  defaultPath: string,
+  defaultPath: string | undefined,
   label: string,
 ): string | undefined {
   const direct = process.env[envVar];
@@ -244,6 +233,10 @@ function readSecret(
   }
 
   const filePath = process.env[fileEnvVar] || defaultPath;
+  if (!filePath) {
+    return undefined;
+  }
+
   if (!fs.existsSync(filePath)) {
     return undefined;
   }

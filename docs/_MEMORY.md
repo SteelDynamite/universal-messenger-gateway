@@ -14,6 +14,15 @@ pure and carries useful tests before SDK/crypto dependencies land.
 Matrix SDK integration is underway: storage belongs under `./state`, and authorization is
 not embedded in the transport.
 `matrix-bot-sdk` has inherited npm audit findings through `request`; see ADR 0009.
+Next action: implement [interactive dev chat cli](features/interactive-dev-chat-cli.md),
+starting with `umg chat` as a small readline-style harness for live Matrix testing.
+Longer-term client features are split into
+[client capability backlog](features/client-capability-backlog.md).
+
+Local Matrix smoke-test state exists under gitignored `state/`: `config.json`,
+`matrix-recovery-key.txt`, `matrix-password.txt`, `matrix-store.json`, and
+`matrix-crypto/`. Do not commit `state/`. The Matrix recovery key file is read from
+`state/matrix-recovery-key.txt` by default and must stay `0600`.
 
 ## Source to lift from
 
