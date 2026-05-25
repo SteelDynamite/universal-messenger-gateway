@@ -19,6 +19,7 @@ behavior is deferred until a concrete process-lifetime problem exists.
 
 Phase 1 runtime state defaults to `./state` and can be overridden with
 `UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR`. The intended shape is one gateway per agent.
+Transport config loads from `state/config.json`.
 
 The standard I/O contract is the actual product — pin it before adding features. See the
 [glossary](GLOSSARY.md) for terms.
@@ -43,8 +44,10 @@ What carries over from the extension:
 ## Project structure
 
 - `src/protocol.ts` — standard gateway event and command envelope.
+- `src/config.ts` — `state/config.json` loading and validation.
 - `src/cli.ts` — cli entrypoint; currently a placeholder until the I/O mechanism is set.
-- `src/transports/` — expected home for compiled first-party adapters as they are lifted.
+- `src/transports/` — transport interface, manager, and compiled first-party adapters as
+  they are lifted.
 
 ## Where to look next
 

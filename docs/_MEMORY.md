@@ -7,8 +7,8 @@ Current active goal: stand up the standalone gateway + cli (Phase 1).
 - [Phase 1 — Standalone gateway + cli](features/phase-1-standalone-gateway-and-cli.md)
 
 Project scaffold exists: `package.json`, `tsconfig`, `biome.json`, vitest config, and
-`src/` are present. The first code surface is `src/protocol.ts`, which defines the
-gateway event and command envelope for the documented Phase 1 message flow.
+`src/` are present. The first code surfaces are `src/protocol.ts`, the JSON-lines stdio
+shell, `state/config.json` loading, and the minimal transport interface/manager seam.
 
 ## Source to lift from
 

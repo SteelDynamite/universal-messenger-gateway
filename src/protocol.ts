@@ -66,7 +66,7 @@ export function isGatewayCommand(value: unknown): value is GatewayCommand {
   return false;
 }
 
-function isTransportName(value: unknown): value is TransportName {
+export function isTransportName(value: unknown): value is TransportName {
   return (
     value === "matrix" ||
     value === "slack" ||
