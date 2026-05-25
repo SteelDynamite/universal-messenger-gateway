@@ -14,6 +14,12 @@ The whole system is `cli > gateway > transport`:
 - a consumer (the **cli** in development, an **orchestrator** in production) drives the
   standard I/O.
 
+The standard I/O is newline-delimited JSON over stdin/stdout for Phase 1. Daemon/socket
+behavior is deferred until a concrete process-lifetime problem exists.
+
+Phase 1 runtime state defaults to `./state` and can be overridden with
+`UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR`. The intended shape is one gateway per agent.
+
 The standard I/O contract is the actual product — pin it before adding features. See the
 [glossary](GLOSSARY.md) for terms.
 
@@ -36,8 +42,9 @@ What carries over from the extension:
 
 ## Project structure
 
-To be filled in as code lands — expected `src/` with `transports/` for per-platform
-adapters, a gateway core, and a cli entrypoint.
+- `src/protocol.ts` — standard gateway event and command envelope.
+- `src/cli.ts` — cli entrypoint; currently a placeholder until the I/O mechanism is set.
+- `src/transports/` — expected home for compiled first-party adapters as they are lifted.
 
 ## Where to look next
 

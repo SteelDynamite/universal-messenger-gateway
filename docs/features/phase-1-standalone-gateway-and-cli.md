@@ -20,10 +20,7 @@ Stand up the gateway as a standalone service driven by a cli, with no bot attach
 
 ## Open decisions
 
-- The standard envelope shape (pin first).
-- cli↔gateway I/O mechanism (stdio JSON-lines vs unix socket).
-- Transport load model.
-- State dir.
+None.
 
 ## Done when
 
@@ -31,4 +28,9 @@ The cli round-trips a real message on at least one transport — inbound rendere
 delivered, encryption intact where the platform has it — with no bot involved.
 
 Related: [0001](../decisions/0001-extract-transport-layer-as-a-standalone-gateway.md),
-[0003](../decisions/0003-standard-io-is-the-product-cli-driven-development.md).
+[0003](../decisions/0003-standard-io-is-the-product-cli-driven-development.md),
+[0004](../decisions/0004-standard-gateway-envelope.md),
+[0005](../decisions/0005-use-stdio-json-lines-for-gateway-io.md),
+[0006](../decisions/0006-compile-first-party-transports-together.md),
+[0007](../decisions/0007-use-repo-local-state-dir-for-phase-1.md),
+[0008](../decisions/0008-use-one-gateway-per-agent.md).
