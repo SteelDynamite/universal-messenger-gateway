@@ -3,23 +3,38 @@
 A standalone, bot-agnostic gateway that speaks many chat platforms and exposes one
 standardized I/O for a single bot.
 
-It lifts the transport layer out of
-[`pi-messenger-bridge`](https://github.com/tintinweb/pi-messenger-bridge) and makes it
-its own thing:
+## What it is
 
-- **transport** — an adapter to a single chat service (Matrix, Slack, Discord,
-  Telegram, WhatsApp). One transport per platform. Messages are *adapted* to and from
-  the gateway's standard I/O, not mirrored between platforms.
+Connect one bot to many chat platforms without teaching the bot any platform's API. The
+gateway owns the platform connections and the message envelope; the bot speaks one
+standard I/O.
+
+- **transport** — an adapter to one chat service (Matrix, Slack, Discord, Telegram,
+  WhatsApp). Messages are *adapted* to and from the standard I/O, never mirrored between
+  platforms.
 - **gateway** — the portal a transport connects to on one side and a bot on the other.
-  Owns the normalized message envelope and all transport state (including the Matrix
-  crypto/session store). Pure transport-layer: no agent logic.
-- **cli** — a test harness that drives the gateway over its standard I/O with no agent
-  involved, so the gateway can be developed and exercised in complete isolation. An
-  orchestrator swaps in where the cli sits when it is time to connect an agent.
+  Owns the normalized envelope and all transport state (including the Matrix
+  crypto/session store). Pure transport-layer — no bot logic.
+- **cli** — drives the gateway over its standard I/O with no bot attached, so it can be
+  run and tested in isolation.
+
+It is the transport layer of the
+[pi-messenger-bridge](https://github.com/tintinweb/pi-messenger-bridge) extension,
+refactored into a standalone project.
 
 ## Status
 
-Early — scaffolding. See the phased plan for scope.
+Early — scaffolding. No published release yet. See [`docs/`](docs/) for scope and the
+current phase.
+
+## Documentation
+
+This repo is an Obsidian vault rooted at the repo root; docs live in [`docs/`](docs/).
+
+- [Contributing](docs/CONTRIBUTING.md) — developer mental model and structure
+- [Glossary](docs/GLOSSARY.md) — project vocabulary
+- [Conventions](docs/CONVENTIONS.md) — code and docs rules
+- [Decisions](docs/decisions/) · [Runbooks](docs/runbooks/) · [Features](docs/features/)
 
 ## License
 

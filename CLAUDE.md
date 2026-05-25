@@ -1,0 +1,1 @@
+@docs/AGENT-INSTRUCTIONS.md
