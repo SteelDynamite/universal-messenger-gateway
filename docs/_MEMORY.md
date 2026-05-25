@@ -9,6 +9,8 @@ Current active goal: stand up the standalone gateway + cli (Phase 1).
 Project scaffold exists: `package.json`, `tsconfig`, `biome.json`, vitest config, and
 `src/` are present. The first code surfaces are `src/protocol.ts`, the JSON-lines stdio
 shell, `state/config.json` loading, and the minimal transport interface/manager seam.
+Matrix is the first real transport target. `matrix-utils.ts` is lifted first because it is
+pure and carries useful tests before SDK/crypto dependencies land.
 
 ## Source to lift from
 
