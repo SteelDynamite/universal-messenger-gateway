@@ -23,6 +23,7 @@ Inherited from the source extension:
 - Standard relative Markdown links between docs — they render on GitHub and resolve in
   Obsidian.
 - ADRs are the one place that records the *why* of a decision.
+- Tech-debt notes describe debt being carried, why it was accepted, and what would retire it.
 
 ## Git
 

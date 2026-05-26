@@ -135,11 +135,6 @@ export async function ensureSelfCrossSigned(
   const botUserId = await client.getUserId();
 
   if (opts.recoveryKey) {
-    if (await isDeviceCrossSigned(client, botUserId)) {
-      log("[Matrix xsign] device already cross-signed; ignoring recovery key");
-      return { status: "already" };
-    }
-
     log("[Matrix xsign] importing existing cross-signing identity from SSSS");
     await importViaRecoveryKey(
       client,

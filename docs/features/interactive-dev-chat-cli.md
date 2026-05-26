@@ -24,6 +24,15 @@ umg chat
 
 `umg gateway` remains the stdio JSON-lines mode.
 
+## Current implementation
+
+The first implementation is intentionally small: it starts configured transports,
+prints inbound messages, auto-selects the first inbound target, sends normal typed
+lines to the current target, auto-selects Matrix rooms with failed decryption so a
+bootstrap reply can be sent, and supports `/target`, `/leave`, `/status`, and `/quit`.
+In an interactive terminal, `/` opens command suggestions and `/target` / `/leave` offer
+known targets. Joins, invites, and typing toggle are still pending.
+
 ## Shape
 
 - Load `state/config.json` and start configured transports in-process.
@@ -39,6 +48,8 @@ umg chat
 ## Slash Commands
 
 - `/target <transport> <chatId>` — set outbound target.
+- `/leave [transport] [chatId]` — leave the current target, or the explicit target, where the
+  transport supports it.
 - `/join <transport> <room>` — join a room by room ID or alias, where the transport
   supports it.
 - `/accept <transport>` — select and accept a pending invite for a transport.
@@ -72,7 +83,8 @@ state quickly.
 
 ## Room Membership
 
-- Matrix auto-joins invites at the SDK layer today.
+- Matrix auto-joins invites at the SDK layer today; replace this with
+  [intentional invite membership](intentional-invite-membership.md).
 - The chat cli should still surface joins and invites explicitly so testing is visible.
 - `/status` shows pending invite counts across transports.
 - `/accept <transport>` shows the selectable invite list for one transport.

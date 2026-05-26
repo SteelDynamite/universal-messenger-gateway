@@ -1,3 +1,4 @@
+export { runChatCli, type RunChatCliOptions } from "./chat.js";
 export type {
   GatewayConfig,
   TransportConfig,
@@ -31,12 +32,14 @@ export {
   type GatewayTransportErrorHandler,
 } from "./transports/manager.js";
 export type {
+  TransportChat,
   TransportErrorHandler,
   TransportMessageHandler,
   TransportProvider,
 } from "./transports/interface.js";
 export {
   createMatrixProvider,
+  MatrixDecryptionError,
   MatrixConfigError,
   MatrixProvider,
   parseMatrixConfig,

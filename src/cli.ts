@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { runChatCli } from "./chat.js";
 import { loadGatewayConfig } from "./config.js";
 import { runGatewayStdio } from "./gateway.js";
 import { writeJsonLine } from "./io/json-lines.js";
@@ -18,20 +19,7 @@ const [command] = process.argv.slice(2);
 if (command === "gateway") {
   const stateDir = resolveStateDir();
   const config = await loadGatewayConfig(stateDir);
-  let manager: TransportManager;
-
-  try {
-    manager = new TransportManager(
-      createConfiguredTransports(config, { stateDir }),
-    );
-  } catch (error) {
-    if (error instanceof UnavailableTransportError) {
-      process.stderr.write(`${error.message} (${stateDir})\n`);
-      process.exit(1);
-    } else {
-      throw error;
-    }
-  }
+  const manager = createManager(config, stateDir);
 
   manager.onMessage((message) => {
     void writeJsonLine(process.stdout, { type: "message", message });
@@ -64,7 +52,49 @@ if (command === "gateway") {
   });
 
   process.exitCode = exitCode;
+} else if (command === "chat") {
+  const stateDir = resolveStateDir();
+  const config = await loadGatewayConfig(stateDir);
+  const manager = createManager(config, stateDir);
+
+  const exitCode = await runChatCli({
+    input: process.stdin,
+    output: process.stdout,
+    errorOutput: process.stderr,
+    manager,
+  });
+  hardExit(exitCode);
 } else {
-  process.stderr.write("Usage: umg gateway\n");
+  process.stderr.write("Usage: umg <gateway|chat>\n");
   process.exitCode = 1;
+}
+
+function hardExit(exitCode: number): never {
+  const processWithHardExit = process as typeof process & {
+    reallyExit?: (code?: number) => never;
+  };
+
+  if (processWithHardExit.reallyExit) {
+    processWithHardExit.reallyExit(exitCode);
+  }
+
+  process.exit(exitCode);
+}
+
+function createManager(
+  config: Awaited<ReturnType<typeof loadGatewayConfig>>,
+  stateDir: string,
+): TransportManager {
+  try {
+    return new TransportManager(
+      createConfiguredTransports(config, { stateDir }),
+    );
+  } catch (error) {
+    if (error instanceof UnavailableTransportError) {
+      process.stderr.write(`${error.message} (${stateDir})\n`);
+      process.exit(1);
+    }
+
+    throw error;
+  }
 }
