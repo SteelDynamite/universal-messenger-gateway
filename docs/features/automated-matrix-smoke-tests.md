@@ -39,9 +39,13 @@ two-account smoke test should catch these regressions before they reach manual t
 ## Open Design Points
 
 - How to provision the second account/token safely.
-- Whether the smoke test runs by default, behind an env flag, or as a runbook-only command.
 - How much Matrix state to reuse versus recreate per run.
-- Whether this belongs in Vitest, a separate `scripts/` runner, or a CLI subcommand.
+
+## Current Runner
+
+The first smoke test lives in `tests/matrix-smoke.test.ts` and runs through Vitest with
+`npm run test:matrix-smoke`. It is skipped unless `UMG_MATRIX_SMOKE=1` is set. See
+[Matrix smoke tests](../runbooks/matrix-smoke-tests.md) for required environment variables.
 
 ## Done When
 

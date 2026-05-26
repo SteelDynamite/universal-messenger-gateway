@@ -15,8 +15,8 @@ Matrix SDK integration is underway: storage belongs under `./state`, and authori
 not embedded in the transport.
 `matrix-bot-sdk` has inherited npm audit findings through `request`; see ADR 0009.
 `umg chat` now exists as a small readline-style harness for live Matrix testing.
-Next action: build [automated Matrix smoke tests](features/automated-matrix-smoke-tests.md),
-then replace Matrix autojoin with
+Next action: run the gated [automated Matrix smoke tests](features/automated-matrix-smoke-tests.md)
+against two live accounts, then replace Matrix autojoin with
 [intentional invite membership](features/intentional-invite-membership.md).
 Interactive chat mode uses a hard process exit on quit; see
 [tech-debt 0001](techdebt/0001-bun-matrix-crypto-hard-exit.md).

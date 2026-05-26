@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/ tests/",
     "lint:fix": "biome check --write src/ tests/",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:matrix-smoke": "vitest run tests/matrix-smoke.test.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
