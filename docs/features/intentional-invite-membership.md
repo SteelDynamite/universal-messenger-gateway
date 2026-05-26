@@ -1,16 +1,17 @@
 ---
 parent: "[[interactive-dev-chat-cli]]"
 tags:
-  - status/in-progress
+  - status/done
 ---
 
 # Intentional Invite Membership
 
-Replace Matrix autojoin with explicit invite visibility and accept/reject controls.
+Matrix invite membership is explicit: pending invites are visible, and joins happen only
+after accept.
 
 ## Problem
 
-The Matrix transport currently auto-joins invites through `AutojoinRoomsMixin`. That is useful
+The Matrix transport used to auto-join invites through `AutojoinRoomsMixin`. That was useful
 for early smoke testing but wrong for a gateway that needs deliberate room membership and
 testable invite behavior.
 
@@ -30,8 +31,11 @@ testable invite behavior.
 - A maintainer can accept or reject the invite intentionally.
 - Automated Matrix smoke tests cover accept and reject paths.
 
-## Current Shape
+## Result
 
 `TransportProvider` exposes optional invite methods. Matrix tracks `room.invite` events and
 does not autojoin. `umg chat` exposes `/accept <transport> <invite>` and `/reject <transport>
 <invite> [reason]`, and `/status` shows pending invite counts.
+
+The live Matrix smoke test covers no-autojoin, explicit accept, encrypted round-trip after
+accept, and explicit reject without joining.
