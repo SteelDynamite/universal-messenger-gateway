@@ -34,6 +34,7 @@ export {
 export type {
   TransportChat,
   TransportErrorHandler,
+  TransportInvite,
   TransportMessageHandler,
   TransportProvider,
 } from "./transports/interface.js";

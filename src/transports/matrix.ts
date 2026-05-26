@@ -2,7 +2,6 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { ILogger } from "matrix-bot-sdk";
 import {
-  AutojoinRoomsMixin,
   LogService,
   MatrixClient,
   RichConsoleLogger,
@@ -11,7 +10,11 @@ import {
 } from "matrix-bot-sdk";
 import type { TransportConfig } from "../config.js";
 import type { InboundMessage } from "../protocol.js";
-import type { TransportChat, TransportProvider } from "./interface.js";
+import type {
+  TransportChat,
+  TransportInvite,
+  TransportProvider,
+} from "./interface.js";
 import {
   ensureSelfCrossSigned,
   readAccountPassword,
@@ -37,6 +40,17 @@ type MatrixTransportConfig = {
 
 type MatrixEvent = MatrixRoomEvent & {
   event_id?: string;
+};
+
+type MatrixInviteEvent = {
+  sender?: string;
+  unsigned?: {
+    invite_room_state?: Array<{
+      type?: string;
+      state_key?: string;
+      content?: Record<string, unknown>;
+    }>;
+  };
 };
 
 export class MatrixConfigError extends Error {
@@ -70,6 +84,7 @@ export class MatrixProvider implements TransportProvider {
   #errorHandler?: (error: unknown) => void;
   #botUserId: string | undefined;
   #joinedRooms = new Set<string>();
+  #pendingInvites = new Map<string, TransportInvite>();
   #roomMemberCount = new Map<string, number>();
   #connectedAt = 0;
 
@@ -112,12 +127,12 @@ export class MatrixProvider implements TransportProvider {
       cryptoProvider,
     );
 
-    AutojoinRoomsMixin.setupOnClient(this.#client);
     this.#botUserId = await this.#client.getUserId();
     this.#connectedAt = Date.now();
 
     this.#client.on("room.join", (roomId: string) => {
       this.#joinedRooms.add(roomId);
+      this.#pendingInvites.delete(roomId);
       this.#client
         ?.getJoinedRoomMembers(roomId)
         .then((members) => this.#roomMemberCount.set(roomId, members.length))
@@ -125,8 +140,18 @@ export class MatrixProvider implements TransportProvider {
     });
     this.#client.on("room.leave", (roomId: string) => {
       this.#joinedRooms.delete(roomId);
+      this.#pendingInvites.delete(roomId);
       this.#roomMemberCount.delete(roomId);
     });
+    this.#client.on(
+      "room.invite",
+      (roomId: string, event: MatrixInviteEvent) => {
+        this.#pendingInvites.set(roomId, {
+          inviteId: roomId,
+          ...inviteDetails(event),
+        });
+      },
+    );
     this.#client.on("room.message", (roomId: string, event: MatrixEvent) => {
       void this.handleMessage(roomId, event).catch((error: unknown) => {
         this.#errorHandler?.(error);
@@ -207,6 +232,10 @@ export class MatrixProvider implements TransportProvider {
     );
   }
 
+  listInvites(): Promise<TransportInvite[]> {
+    return Promise.resolve([...this.#pendingInvites.values()]);
+  }
+
   async sendMessage(chatId: string, text: string): Promise<void> {
     if (!this.#client) {
       throw new Error("Matrix client not connected");
@@ -241,6 +270,25 @@ export class MatrixProvider implements TransportProvider {
     await this.#client.leaveRoom(chatId, reason);
     this.#joinedRooms.delete(chatId);
     this.#roomMemberCount.delete(chatId);
+  }
+
+  async acceptInvite(inviteId: string): Promise<void> {
+    if (!this.#client) {
+      throw new Error("Matrix client not connected");
+    }
+
+    const roomId = await this.#client.joinRoom(inviteId);
+    this.#pendingInvites.delete(inviteId);
+    this.#joinedRooms.add(roomId);
+  }
+
+  async rejectInvite(inviteId: string, reason?: string): Promise<void> {
+    if (!this.#client) {
+      throw new Error("Matrix client not connected");
+    }
+
+    await this.#client.leaveRoom(inviteId, reason);
+    this.#pendingInvites.delete(inviteId);
   }
 
   onMessage(handler: (message: InboundMessage) => void): void {
@@ -407,9 +455,33 @@ export class MatrixProvider implements TransportProvider {
     this.#isConnected = false;
     this.#botUserId = undefined;
     this.#joinedRooms.clear();
+    this.#pendingInvites.clear();
     this.#roomMemberCount.clear();
     this.#connectedAt = 0;
   }
+}
+
+function inviteDetails(event: MatrixInviteEvent): {
+  displayName?: string;
+  inviter?: string;
+} {
+  const inviteRoomState = event.unsigned?.invite_room_state ?? [];
+  const roomName = inviteRoomState.find(
+    (state) => state.type === "m.room.name" && state.state_key === "",
+  )?.content?.name;
+  const canonicalAlias = inviteRoomState.find(
+    (state) =>
+      state.type === "m.room.canonical_alias" && state.state_key === "",
+  )?.content?.alias;
+
+  return {
+    ...(typeof roomName === "string" && roomName.trim()
+      ? { displayName: roomName.trim() }
+      : typeof canonicalAlias === "string" && canonicalAlias.trim()
+        ? { displayName: canonicalAlias.trim() }
+        : {}),
+    ...(event.sender ? { inviter: event.sender } : {}),
+  };
 }
 
 export function createMatrixProvider(

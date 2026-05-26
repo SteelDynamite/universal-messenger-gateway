@@ -86,6 +86,10 @@ runMatrixSmoke(
     roomsToLeave.push(roomId);
 
     await waitForChat(accountA.provider, roomId);
+    await waitForInvite(accountB.provider, roomId);
+    expect(await hasChat(accountB.provider, roomId)).toBe(false);
+
+    await accountB.provider.acceptInvite(roomId);
     await waitForChat(accountB.provider, roomId);
 
     const messageFromA = `umg smoke a->b ${runId}`;
@@ -124,6 +128,29 @@ runMatrixSmoke(
     expect(accountB.messages).toContainEqual(
       expect.objectContaining({ chatId: roomId, content: messageFromA }),
     );
+
+    const rejectedRoomId = await controlClient.createRoom({
+      preset: "private_chat",
+      visibility: "private",
+      is_direct: true,
+      invite: [accountBUserId],
+      name: `umg smoke reject ${runId}`,
+      initial_state: [
+        {
+          type: "m.room.encryption",
+          state_key: "",
+          content: { algorithm: "m.megolm.v1.aes-sha2" },
+        },
+      ],
+    });
+    roomsToLeave.push(rejectedRoomId);
+
+    await waitForInvite(accountB.provider, rejectedRoomId);
+    await accountB.provider.rejectInvite(rejectedRoomId, "matrix smoke reject");
+    await waitFor(
+      async () => !(await hasInvite(accountB.provider, rejectedRoomId)),
+    );
+    expect(await hasChat(accountB.provider, rejectedRoomId)).toBe(false);
   },
 );
 
@@ -165,6 +192,29 @@ async function waitForChat(
     const chats = await provider.listChats();
     return chats.some((chat) => chat.chatId === roomId);
   }, `Matrix room ${roomId} did not appear in joined chats`);
+}
+
+async function waitForInvite(
+  provider: MatrixProvider,
+  inviteId: string,
+): Promise<void> {
+  await waitFor(async () => await hasInvite(provider, inviteId));
+}
+
+async function hasChat(
+  provider: MatrixProvider,
+  roomId: string,
+): Promise<boolean> {
+  const chats = await provider.listChats();
+  return chats.some((chat) => chat.chatId === roomId);
+}
+
+async function hasInvite(
+  provider: MatrixProvider,
+  inviteId: string,
+): Promise<boolean> {
+  const invites = await provider.listInvites();
+  return invites.some((invite) => invite.inviteId === inviteId);
 }
 
 async function waitForMessage(

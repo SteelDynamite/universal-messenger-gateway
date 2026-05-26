@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import type {
   InboundMessage,
   TransportChat,
+  TransportInvite,
   TransportProvider,
 } from "../src/index.js";
 import {
@@ -121,6 +122,51 @@ test("can target listed chats before receiving messages", async () => {
   ]);
 });
 
+test("shows pending invite counts in status", async () => {
+  const matrix = new FakeTransport("matrix");
+  matrix.invites = [{ inviteId: "invite-room", displayName: "Invite Room" }];
+  const manager = new TransportManager([matrix]);
+  const output = collectOutput();
+
+  await runChatCli({
+    input: scriptedInput("/status\n/quit\n"),
+    output,
+    errorOutput: collectOutput(),
+    manager,
+  });
+
+  expect(output.text()).toContain("Pending invites: 1");
+});
+
+test("accepts pending invites", async () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+
+  await runChatCli({
+    input: scriptedInput("/accept matrix invite-room\n/quit\n"),
+    output: collectOutput(),
+    errorOutput: collectOutput(),
+    manager,
+  });
+
+  expect(matrix.acceptedInvites).toEqual(["invite-room"]);
+});
+
+test("rejects pending invites with a reason", async () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+
+  await runChatCli({
+    input: scriptedInput('/reject matrix invite-room "not now"\n/quit\n'),
+    output: collectOutput(),
+    errorOutput: collectOutput(),
+    manager,
+  });
+
+  expect(matrix.rejectedInvites).toEqual(["invite-room"]);
+  expect(matrix.rejectReasons).toEqual(["not now"]);
+});
+
 function scriptedInput(source: string): PassThrough {
   const input = new PassThrough();
 
@@ -150,9 +196,13 @@ class FakeTransport implements TransportProvider {
   isConnected = false;
   onConnect?: () => void;
   chats: TransportChat[] = [];
+  invites: TransportInvite[] = [];
   sentMessages: Array<{ chatId: string; text: string }> = [];
   leftChats: string[] = [];
   leaveReasons: Array<string | undefined> = [];
+  acceptedInvites: string[] = [];
+  rejectedInvites: string[] = [];
+  rejectReasons: Array<string | undefined> = [];
   readonly #messageHandlers = new Set<(message: InboundMessage) => void>();
   readonly #errorHandlers = new Set<(error: unknown) => void>();
 
@@ -171,6 +221,10 @@ class FakeTransport implements TransportProvider {
     return this.chats;
   }
 
+  async listInvites(): Promise<TransportInvite[]> {
+    return this.invites;
+  }
+
   async sendMessage(chatId: string, text: string): Promise<void> {
     this.sentMessages.push({ chatId, text });
   }
@@ -180,6 +234,15 @@ class FakeTransport implements TransportProvider {
   async leaveChat(chatId: string, reason?: string): Promise<void> {
     this.leftChats.push(chatId);
     this.leaveReasons.push(reason);
+  }
+
+  async acceptInvite(inviteId: string): Promise<void> {
+    this.acceptedInvites.push(inviteId);
+  }
+
+  async rejectInvite(inviteId: string, reason?: string): Promise<void> {
+    this.rejectedInvites.push(inviteId);
+    this.rejectReasons.push(reason);
   }
 
   onMessage(handler: (message: InboundMessage) => void): void {

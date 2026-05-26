@@ -1,7 +1,7 @@
 ---
 parent: "[[interactive-dev-chat-cli]]"
 tags:
-  - status/planned
+  - status/in-progress
 ---
 
 # Intentional Invite Membership
@@ -29,3 +29,9 @@ testable invite behavior.
 - `umg chat` shows the pending invite.
 - A maintainer can accept or reject the invite intentionally.
 - Automated Matrix smoke tests cover accept and reject paths.
+
+## Current Shape
+
+`TransportProvider` exposes optional invite methods. Matrix tracks `room.invite` events and
+does not autojoin. `umg chat` exposes `/accept <transport> <invite>` and `/reject <transport>
+<invite> [reason]`, and `/status` shows pending invite counts.

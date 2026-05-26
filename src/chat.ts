@@ -16,6 +16,7 @@ type ChatTarget = {
 type ChatState = {
   currentTarget: ChatTarget | undefined;
   knownTargets: Map<TransportName, Map<string, string | undefined>>;
+  knownInvites: Map<TransportName, Map<string, string | undefined>>;
 };
 
 type TtyInput = Readable & {
@@ -34,7 +35,14 @@ type Suggestion = {
   value: string;
 };
 
-const SLASH_COMMANDS = ["/target", "/leave", "/status", "/quit"] as const;
+const SLASH_COMMANDS = [
+  "/target",
+  "/accept",
+  "/reject",
+  "/leave",
+  "/status",
+  "/quit",
+] as const;
 
 export type RunChatCliOptions = {
   input: Readable;
@@ -52,6 +60,7 @@ export async function runChatCli({
   const state: ChatState = {
     currentTarget: undefined,
     knownTargets: new Map(),
+    knownInvites: new Map(),
   };
   const write = (message: string) => output.write(message);
   const writeError = (message: string) => errorOutput.write(message);
@@ -105,8 +114,9 @@ async function runLineChat({
   registerManagerHandlers({ manager, state, write, writeError, refreshPrompt });
   await manager.connectAll();
   await rememberListedChats(manager, state, writeError);
+  await rememberListedInvites(manager, state, writeError);
   write(
-    "Connected. Type a message, /target <transport> <chatId>, /leave, /status, or /quit.\n",
+    "Connected. Type a message, /target <transport> <chatId>, /accept, /reject, /leave, /status, or /quit.\n",
   );
   refreshPrompt();
 
@@ -184,8 +194,9 @@ async function runInteractiveChat({
 
   await manager.connectAll();
   await rememberListedChats(manager, state, writeError);
+  await rememberListedInvites(manager, state, writeError);
   write(
-    "Connected. Type a message, /target <transport> <chatId>, /leave, /status, or /quit.\n",
+    "Connected. Type a message, /target <transport> <chatId>, /accept, /reject, /leave, /status, or /quit.\n",
   );
   input.setRawMode?.(true);
   input.resume();
@@ -339,6 +350,33 @@ async function rememberListedChats(
   );
 }
 
+async function rememberListedInvites(
+  manager: TransportManager,
+  state: ChatState,
+  writeError: (message: string) => boolean,
+): Promise<void> {
+  await Promise.all(
+    [...manager.transports.values()].map(async (transport) => {
+      if (!transport.listInvites) {
+        state.knownInvites.delete(transport.type);
+        return;
+      }
+
+      try {
+        const invites = new Map<string, string | undefined>();
+        for (const invite of await transport.listInvites()) {
+          invites.set(invite.inviteId, invite.displayName);
+        }
+        state.knownInvites.set(transport.type, invites);
+      } catch (error) {
+        writeError(
+          `Could not list invites for ${transport.type}: ${String(error)}\n`,
+        );
+      }
+    }),
+  );
+}
+
 function registerManagerHandlers({
   manager,
   state,
@@ -424,20 +462,97 @@ async function handleSlashCommand(
     case "/quit":
       return true;
     case "/status":
-      writeStatus(context);
+      await writeStatus(context);
       return false;
     case "/target":
       setTarget(args, context);
+      return false;
+    case "/accept":
+      await acceptInvite(args, context);
+      return false;
+    case "/reject":
+      await rejectInvite(args, context);
       return false;
     case "/leave":
       await leaveTarget(args, context);
       return false;
     default:
       context.write(
-        "Unknown command. Available: /target, /leave, /status, /quit.\n",
+        "Unknown command. Available: /target, /accept, /reject, /leave, /status, /quit.\n",
       );
       return false;
   }
+}
+
+async function acceptInvite(
+  args: string[],
+  context: ChatRuntime,
+): Promise<void> {
+  const target = targetFromArgs(args, undefined);
+
+  if (!target) {
+    context.write("Usage: /accept <transport> <invite>\n");
+    return;
+  }
+
+  const transport = transportForInviteAction(target, context, "Accept");
+  if (!transport) {
+    return;
+  }
+
+  await transport.acceptInvite?.(target.chatId);
+  context.state.knownInvites.get(target.transport)?.delete(target.chatId);
+  rememberTarget(context.state.knownTargets, target.transport, target.chatId);
+  context.state.currentTarget = target;
+  context.write(`Accepted ${target.transport} ${target.chatId}\n`);
+}
+
+async function rejectInvite(
+  args: string[],
+  context: ChatRuntime,
+): Promise<void> {
+  const { target, reason } = inviteActionArgs(args);
+
+  if (!target) {
+    context.write("Usage: /reject <transport> <invite> [reason]\n");
+    return;
+  }
+
+  const transport = transportForInviteAction(target, context, "Reject");
+  if (!transport) {
+    return;
+  }
+
+  await transport.rejectInvite?.(target.chatId, reason);
+  context.state.knownInvites.get(target.transport)?.delete(target.chatId);
+  context.write(`Rejected ${target.transport} ${target.chatId}\n`);
+}
+
+function transportForInviteAction(
+  target: ChatTarget,
+  context: ChatRuntime,
+  action: "Accept" | "Reject",
+): TransportProvider | undefined {
+  let transport: TransportProvider;
+  try {
+    transport = context.manager.getTransport(target.transport);
+  } catch (error) {
+    if (error instanceof UnknownTransportError) {
+      context.write(`Transport is not configured: ${error.transport}\n`);
+      return undefined;
+    }
+
+    throw error;
+  }
+
+  const method =
+    action === "Accept" ? transport.acceptInvite : transport.rejectInvite;
+  if (!method) {
+    context.write(`${action} invite is not supported by ${target.transport}\n`);
+    return undefined;
+  }
+
+  return transport;
 }
 
 function setTarget(args: string[], context: ChatRuntime): void {
@@ -494,9 +609,28 @@ async function leaveTarget(
 }
 
 function commandCompletionValue(command: string): string {
-  return command === "/target" || command === "/leave"
+  return command === "/target" ||
+    command === "/accept" ||
+    command === "/reject" ||
+    command === "/leave"
     ? `${command} `
     : command;
+}
+
+function inviteActionArgs(args: string[]): {
+  target: ChatTarget | undefined;
+  reason?: string;
+} {
+  const [transport, inviteId, ...reasonParts] = args;
+
+  if (!isTransportName(transport) || !inviteId) {
+    return { target: undefined };
+  }
+
+  return {
+    target: { transport, chatId: inviteId },
+    ...optionalReason(reasonParts.join(" ")),
+  };
 }
 
 function leaveArgs(
@@ -568,6 +702,10 @@ function suggestionsFor(
     return leaveSuggestions(buffer, state);
   }
 
+  if (command === "/accept" || command === "/reject") {
+    return inviteSuggestions(buffer, state, command);
+  }
+
   return [];
 }
 
@@ -627,6 +765,39 @@ function leaveSuggestions(buffer: string, state: ChatState): Suggestion[] {
     .map(([chatId, displayName]) => ({
       label: formatTargetLabel(chatId, displayName),
       value: `/leave ${transportPrefix} ${chatId}`,
+    }));
+}
+
+function inviteSuggestions(
+  buffer: string,
+  state: ChatState,
+  command: "/accept" | "/reject",
+): Suggestion[] {
+  const args = commandArgs(buffer);
+  const [transportPrefix = "", invitePrefix = ""] = args;
+
+  if (args.length <= 1 && !/\s$/.test(buffer)) {
+    return [...state.knownInvites.entries()]
+      .filter(([, invites]) => invites.size > 0)
+      .map(([transport]) => transport)
+      .filter((transport) => transport.startsWith(transportPrefix))
+      .map((transport) => ({
+        label: transport,
+        value: `${command} ${transport} `,
+      }));
+  }
+
+  if (!isTransportName(transportPrefix)) {
+    return [];
+  }
+
+  return [...(state.knownInvites.get(transportPrefix) ?? new Map())]
+    .filter(([inviteId, displayName]) =>
+      targetMatches(inviteId, displayName, invitePrefix),
+    )
+    .map(([inviteId, displayName]) => ({
+      label: formatTargetLabel(inviteId, displayName),
+      value: `${command} ${transportPrefix} ${inviteId}`,
     }));
 }
 
@@ -742,7 +913,12 @@ function sameTarget(
   );
 }
 
-function writeStatus(context: ChatRuntime): void {
+async function writeStatus(context: ChatRuntime): Promise<void> {
+  await rememberListedInvites(
+    context.manager,
+    context.state,
+    context.writeError,
+  );
   const transports = [...context.manager.transports.values()]
     .map(
       (transport) =>
@@ -756,10 +932,15 @@ function writeStatus(context: ChatRuntime): void {
     (count, chatIds) => count + chatIds.size,
     0,
   );
+  const pendingInviteCount = [...context.state.knownInvites.values()].reduce(
+    (count, invites) => count + invites.size,
+    0,
+  );
 
   context.write(`Target: ${target}\n`);
   context.write(`Transports: ${transports || "none"}\n`);
   context.write(`Known targets: ${knownTargetCount}\n`);
+  context.write(`Pending invites: ${pendingInviteCount}\n`);
 }
 
 function rememberTarget(
