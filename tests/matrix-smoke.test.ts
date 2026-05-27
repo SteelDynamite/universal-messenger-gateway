@@ -1,8 +1,18 @@
 import { join } from "node:path";
+import { Writable } from "node:stream";
 import { MatrixClient } from "matrix-bot-sdk";
 import { afterEach, expect, test } from "vitest";
-import type { InboundMessage, InboundReaction } from "../src/index.js";
-import { MatrixProvider } from "../src/index.js";
+import type {
+  InboundMessage,
+  InboundReaction,
+  TransportProvider,
+} from "../src/index.js";
+import {
+  MatrixProvider,
+  createConfiguredTransports,
+  loadGatewayConfig,
+  runAdminCli,
+} from "../src/index.js";
 
 const SMOKE_TIMEOUT_MS = 90_000;
 const WAIT_TIMEOUT_MS = 45_000;
@@ -67,7 +77,10 @@ runMatrixSmoke(
     ).getUserId();
     const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-    const accountA = await connectParticipant(config.accountA, config, "a");
+    const accountA = await connectAdminConfiguredParticipant(
+      config.accountA,
+      config,
+    );
     const accountB = await connectParticipant(config.accountB, config, "b");
 
     const roomId = await controlClient.createRoom({
@@ -231,6 +244,118 @@ async function connectParticipant(
   return participant;
 }
 
+async function connectAdminConfiguredParticipant(
+  account: SmokeAccount,
+  config: SmokeConfig,
+): Promise<SmokeParticipant> {
+  const stateDir = join(config.stateDir, "a");
+  const output = collectOutput();
+  const errorOutput = collectOutput();
+  const env = { UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR: stateDir };
+  const configureArgs = [
+    "configure",
+    "matrix",
+    "--set",
+    `homeserverUrl=${config.homeserverUrl}`,
+    "--set",
+    `accessToken=${account.accessToken}`,
+  ];
+
+  if (account.accountPassword) {
+    configureArgs.push("--set", `accountPassword=${account.accountPassword}`);
+  }
+  if (account.recoveryKey) {
+    configureArgs.push("--set", `recoveryKey=${account.recoveryKey}`);
+  }
+
+  expect(
+    await runAdminCli({
+      args: configureArgs,
+      output,
+      errorOutput,
+      env,
+      cwd: process.cwd(),
+    }),
+  ).toBe(0);
+  expect(
+    await runAdminCli({
+      args: ["disconnect", "matrix"],
+      output,
+      errorOutput,
+      env,
+      cwd: process.cwd(),
+    }),
+  ).toBe(0);
+  expect(
+    await runAdminCli({
+      args: ["connect", "matrix"],
+      output,
+      errorOutput,
+      env,
+      cwd: process.cwd(),
+    }),
+  ).toBe(0);
+
+  const statusOutput = collectOutput();
+  expect(
+    await runAdminCli({
+      args: ["status"],
+      output: statusOutput,
+      errorOutput,
+      env,
+      cwd: process.cwd(),
+    }),
+  ).toBe(0);
+  expect(statusOutput.text()).toContain("matrix: enabled");
+  expect(statusOutput.text()).toContain("accessToken");
+  expect(statusOutput.text()).not.toContain(account.accessToken);
+  if (account.accountPassword) {
+    expect(statusOutput.text()).not.toContain(account.accountPassword);
+  }
+  if (account.recoveryKey) {
+    expect(statusOutput.text()).not.toContain(account.recoveryKey);
+  }
+
+  const transports = createConfiguredTransports(
+    await loadGatewayConfig(stateDir),
+    { stateDir },
+  );
+  expect(transports).toHaveLength(1);
+  const provider = requireMatrixProvider(transports[0]);
+  const participant = registerParticipant(provider);
+
+  await participant.provider.connect();
+  connectedParticipants.push(participant);
+  return participant;
+}
+
+function registerParticipant(provider: MatrixProvider): SmokeParticipant {
+  const participant: SmokeParticipant = {
+    provider,
+    messages: [],
+    reactions: [],
+    errors: [],
+  };
+  participant.provider.onMessage((message) =>
+    participant.messages.push(message),
+  );
+  participant.provider.onReaction((reaction) =>
+    participant.reactions.push(reaction),
+  );
+  participant.provider.onError((error) => participant.errors.push(error));
+  return participant;
+}
+
+function requireMatrixProvider(
+  provider: TransportProvider | undefined,
+): MatrixProvider {
+  if (!(provider instanceof MatrixProvider)) {
+    throw new Error("Expected admin config to create a MatrixProvider");
+  }
+
+  return provider;
+}
+
 async function waitForChat(
   provider: MatrixProvider,
   roomId: string,
@@ -346,4 +471,20 @@ function matrixSmokeConfig(): SmokeConfig | undefined {
     },
     stateDir: process.env.UMG_MATRIX_SMOKE_STATE_DIR ?? "state/matrix-smoke",
   };
+}
+
+function collectOutput(): Writable & { text(): string } {
+  let contents = "";
+
+  return Object.assign(
+    new Writable({
+      write(chunk, _encoding, callback) {
+        contents += String(chunk);
+        callback();
+      },
+    }),
+    {
+      text: () => contents,
+    },
+  );
 }

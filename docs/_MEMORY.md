@@ -21,8 +21,10 @@ accept/reject. [Intentional invite membership](features/intentional-invite-membe
 is complete: Matrix no longer autojoins, pending invites surface in `umg chat`, and Matrix
 joins only after explicit accept. The smoke runner now also covers reply context, reactions,
 leave behavior, and process-exit shutdown; the gated live Matrix smoke test passed with local
-credentials. Next action: finish the Phase 1 cli/admin surface for configure/status and
-connect/disconnect workflows.
+credentials. The Phase 1 admin cli now has config-oriented `status`, `configure`, `connect`,
+and `disconnect` commands, and the live Matrix smoke test covers that admin flow against real
+credentials. Next action: decide whether Phase 1 needs daemon-style runtime control before
+closing the phase.
 Interactive chat mode uses a hard process exit on quit; see
 [tech-debt 0001](techdebt/0001-bun-matrix-crypto-hard-exit.md).
 Rich client behavior is tracked in [client capability backlog](features/client-capability-backlog.md)

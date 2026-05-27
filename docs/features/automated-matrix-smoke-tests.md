@@ -20,7 +20,8 @@ two-account smoke test should catch these regressions before they reach manual t
 - Use two Matrix accounts with separate state directories and access tokens.
 - Start two gateway instances or one test harness with two Matrix transports.
 - Create or reuse a test room/DM.
-- Exercise invite, accept/reject, send, receive, reply context, reactions, leave, and shutdown.
+- Exercise admin configuration, invite, accept/reject, send, receive, reply context,
+  reactions, leave, and shutdown.
 - Assert both protocol events and visible chat-harness behavior where practical.
 - Keep credentials and crypto state under gitignored `state/` or an explicit test state dir.
 
@@ -46,7 +47,8 @@ two-account smoke test should catch these regressions before they reach manual t
 The smoke test lives in `tests/matrix-smoke.test.ts` and runs through Vitest with
 `bun run test:matrix-smoke`. It is skipped unless `UMG_MATRIX_SMOKE=1` is set. It covers
 explicit invite accept/reject, encrypted A-to-B/B-to-A round trips, reply context, reaction
-events, explicit leave, and process-exit shutdown. See
+events, explicit leave, process-exit shutdown, and the config-oriented admin cli
+`configure`/`connect`/`disconnect`/`status` flow. See
 [Matrix smoke tests](../runbooks/matrix-smoke-tests.md) for required environment variables.
 
 ## Done When

@@ -20,6 +20,19 @@ Stand up the gateway as a standalone service driven by a cli, with no bot attach
 - Re-home the admin surface (connect / disconnect / configure / status) as cli
   subcommands; drop the interactive menu and widget.
 
+## Admin cli
+
+The Phase 1 admin surface is config-oriented because there is no long-running daemon to
+control yet:
+
+- `umg status` prints the state directory, each known transport, whether it is enabled, and
+  configured setting names without printing secret values.
+- `umg configure <transport> [--enable|--disable] [--set key=value]...` updates
+  `state/config.json`.
+- `umg connect <transport>` enables the transport for future `umg gateway` or `umg chat`
+  runs.
+- `umg disconnect <transport>` disables the transport for future runs.
+
 Longer-term chat-client behavior is tracked separately in the
 [client capability backlog](client-capability-backlog.md).
 

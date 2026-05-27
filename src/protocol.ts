@@ -5,6 +5,14 @@ export type TransportName =
   | "telegram"
   | "whatsapp";
 
+export const TRANSPORT_NAMES = [
+  "matrix",
+  "slack",
+  "discord",
+  "telegram",
+  "whatsapp",
+] as const satisfies readonly TransportName[];
+
 export type MessageReference = {
   transport: TransportName;
   chatId: string;
@@ -104,13 +112,7 @@ export function isGatewayCommand(value: unknown): value is GatewayCommand {
 }
 
 export function isTransportName(value: unknown): value is TransportName {
-  return (
-    value === "matrix" ||
-    value === "slack" ||
-    value === "discord" ||
-    value === "telegram" ||
-    value === "whatsapp"
-  );
+  return TRANSPORT_NAMES.includes(value as TransportName);
 }
 
 function isOptionalMessageReference(

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type TransportName, isTransportName } from "./protocol.js";
 
@@ -38,6 +38,18 @@ export async function loadGatewayConfig(
 
     throw error;
   }
+}
+
+export async function saveGatewayConfig(
+  stateDir: string,
+  config: GatewayConfig,
+): Promise<void> {
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(
+    configPathForStateDir(stateDir),
+    `${JSON.stringify(config, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 export function parseGatewayConfig(source: string): GatewayConfig {

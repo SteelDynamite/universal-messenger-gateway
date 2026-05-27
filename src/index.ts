@@ -1,4 +1,5 @@
 export { runChatCli, type RunChatCliOptions } from "./chat.js";
+export { runAdminCli, type RunAdminCliOptions } from "./admin.js";
 export type {
   GatewayConfig,
   TransportConfig,
@@ -10,6 +11,7 @@ export {
   emptyGatewayConfig,
   loadGatewayConfig,
   parseGatewayConfig,
+  saveGatewayConfig,
 } from "./config.js";
 export type {
   GatewayCommand,
@@ -23,7 +25,11 @@ export type {
   TransportName,
 } from "./protocol.js";
 
-export { isGatewayCommand, isTransportName } from "./protocol.js";
+export {
+  isGatewayCommand,
+  isTransportName,
+  TRANSPORT_NAMES,
+} from "./protocol.js";
 export { runGatewayStdio, type GatewayCommandHandler } from "./gateway.js";
 export { resolveStateDir, STATE_DIR_ENV } from "./state.js";
 export {

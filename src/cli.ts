@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { runAdminCli } from "./admin.js";
 import { runChatCli } from "./chat.js";
 import { loadGatewayConfig } from "./config.js";
 import { runGatewayStdio } from "./gateway.js";
@@ -67,8 +68,21 @@ if (command === "gateway") {
     manager,
   });
   hardExit(exitCode);
+} else if (
+  command === "status" ||
+  command === "configure" ||
+  command === "connect" ||
+  command === "disconnect"
+) {
+  process.exitCode = await runAdminCli({
+    args: process.argv.slice(2),
+    output: process.stdout,
+    errorOutput: process.stderr,
+  });
 } else {
-  process.stderr.write("Usage: umg <gateway|chat>\n");
+  process.stderr.write(
+    "Usage: umg <gateway|chat|status|configure|connect|disconnect>\n",
+  );
   process.exitCode = 1;
 }
 

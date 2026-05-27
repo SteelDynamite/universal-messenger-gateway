@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -8,6 +8,7 @@ import {
   configPathForStateDir,
   loadGatewayConfig,
   parseGatewayConfig,
+  saveGatewayConfig,
 } from "../src/index.js";
 
 const tempDirs: string[] = [];
@@ -64,6 +65,20 @@ test("rejects invalid config shapes", () => {
 
 test("builds config paths under the state directory", () => {
   expect(configPathForStateDir("/repo/state")).toBe("/repo/state/config.json");
+});
+
+test("saves config under the state directory", async () => {
+  const stateDir = await tempStateDir();
+
+  await saveGatewayConfig(stateDir, {
+    transports: { matrix: { enabled: true } },
+  });
+
+  await expect(
+    readFile(join(stateDir, CONFIG_FILE_NAME), "utf8"),
+  ).resolves.toBe(
+    '{\n  "transports": {\n    "matrix": {\n      "enabled": true\n    }\n  }\n}\n',
+  );
 });
 
 async function tempStateDir(): Promise<string> {
