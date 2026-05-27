@@ -45,8 +45,9 @@ two-account smoke test should catch these regressions before they reach manual t
 
 The smoke test lives in `tests/matrix-smoke.test.ts` and runs through Vitest with
 `bun run test:matrix-smoke`. It is skipped unless `UMG_MATRIX_SMOKE=1` is set. It covers
-explicit invite accept/reject and encrypted A-to-B/B-to-A round trips. See [Matrix smoke
-tests](../runbooks/matrix-smoke-tests.md) for required environment variables.
+explicit invite accept/reject, encrypted A-to-B/B-to-A round trips, reply context, reaction
+events, explicit leave, and process-exit shutdown. See
+[Matrix smoke tests](../runbooks/matrix-smoke-tests.md) for required environment variables.
 
 ## Done When
 

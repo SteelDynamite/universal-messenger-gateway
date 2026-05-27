@@ -24,6 +24,9 @@ if (command === "gateway") {
   manager.onMessage((message) => {
     void writeJsonLine(process.stdout, { type: "message", message });
   });
+  manager.onReaction((reaction) => {
+    void writeJsonLine(process.stdout, { type: "reaction", reaction });
+  });
   manager.onError((transport, error) => {
     process.stderr.write(
       `Transport error from ${transport}: ${String(error)}\n`,

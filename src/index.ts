@@ -15,8 +15,10 @@ export type {
   GatewayCommand,
   GatewayEvent,
   InboundMessage,
+  InboundReaction,
   MessageReference,
   SendMessageCommand,
+  SendReactionCommand,
   SendTypingCommand,
   TransportName,
 } from "./protocol.js";
@@ -29,6 +31,7 @@ export {
   TransportManager,
   UnknownTransportError,
   type GatewayMessageHandler,
+  type GatewayReactionHandler,
   type GatewayTransportErrorHandler,
 } from "./transports/manager.js";
 export type {
@@ -37,6 +40,7 @@ export type {
   TransportInvite,
   TransportMessageHandler,
   TransportProvider,
+  TransportReactionHandler,
 } from "./transports/interface.js";
 export {
   createMatrixProvider,

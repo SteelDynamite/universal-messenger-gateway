@@ -19,8 +19,9 @@ The gated [automated Matrix smoke test](features/automated-matrix-smoke-tests.md
 round-trips encrypted messages between two live accounts and covers explicit invite
 accept/reject. [Intentional invite membership](features/intentional-invite-membership.md)
 is complete: Matrix no longer autojoins, pending invites surface in `umg chat`, and Matrix
-joins only after explicit accept. Next action: extend live Matrix coverage for reply context,
-reactions, leave behavior, and shutdown.
+joins only after explicit accept. The smoke runner now also covers reply context, reactions,
+leave behavior, and process-exit shutdown. Next action: run the gated live Matrix smoke test
+with credentials and fix any live-only failures.
 Interactive chat mode uses a hard process exit on quit; see
 [tech-debt 0001](techdebt/0001-bun-matrix-crypto-hard-exit.md).
 Rich client behavior is tracked in [client capability backlog](features/client-capability-backlog.md)

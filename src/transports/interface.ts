@@ -1,6 +1,12 @@
-import type { InboundMessage, TransportName } from "../protocol.js";
+import type {
+  InboundMessage,
+  InboundReaction,
+  MessageReference,
+  TransportName,
+} from "../protocol.js";
 
 export type TransportMessageHandler = (message: InboundMessage) => void;
+export type TransportReactionHandler = (reaction: InboundReaction) => void;
 export type TransportErrorHandler = (error: unknown) => void;
 
 export type TransportChat = {
@@ -23,11 +29,21 @@ export interface TransportProvider {
   shutdownForProcessExit?(): void;
   listChats?(): Promise<TransportChat[]>;
   listInvites?(): Promise<TransportInvite[]>;
-  sendMessage(chatId: string, text: string): Promise<void>;
+  sendMessage(
+    chatId: string,
+    text: string,
+    replyTo?: MessageReference,
+  ): Promise<void>;
+  sendReaction?(
+    chatId: string,
+    messageId: string,
+    reaction: string,
+  ): Promise<void>;
   sendTyping(chatId: string): Promise<void>;
   leaveChat?(chatId: string, reason?: string): Promise<void>;
   acceptInvite?(inviteId: string): Promise<void>;
   rejectInvite?(inviteId: string, reason?: string): Promise<void>;
   onMessage(handler: TransportMessageHandler): void;
+  onReaction?(handler: TransportReactionHandler): void;
   onError(handler: TransportErrorHandler): void;
 }

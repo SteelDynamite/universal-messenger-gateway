@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { MatrixClient } from "matrix-bot-sdk";
 import { afterEach, expect, test } from "vitest";
-import type { InboundMessage } from "../src/index.js";
+import type { InboundMessage, InboundReaction } from "../src/index.js";
 import { MatrixProvider } from "../src/index.js";
 
 const SMOKE_TIMEOUT_MS = 90_000;
@@ -23,6 +23,7 @@ type SmokeAccount = {
 type SmokeParticipant = {
   provider: MatrixProvider;
   messages: InboundMessage[];
+  reactions: InboundReaction[];
   errors: unknown[];
 };
 
@@ -99,13 +100,15 @@ runMatrixSmoke(
         message.chatId === roomId && message.content === messageFromA,
     );
     await accountA.provider.sendMessage(roomId, messageFromA);
-    expect(await receivedByB).toMatchObject({
+    const messageAAtB = await receivedByB;
+    expect(messageAAtB).toMatchObject({
       transport: "matrix",
       chatId: roomId,
       content: messageFromA,
       isGroupChat: false,
       wasMentioned: false,
     });
+    expect(messageAAtB.messageId).toEqual(expect.any(String));
 
     const messageFromB = `umg smoke b->a ${runId}`;
     const receivedByA = waitForMessage(
@@ -113,13 +116,44 @@ runMatrixSmoke(
       (message) =>
         message.chatId === roomId && message.content === messageFromB,
     );
-    await accountB.provider.sendMessage(roomId, messageFromB);
-    expect(await receivedByA).toMatchObject({
+    await accountB.provider.sendMessage(roomId, messageFromB, {
+      transport: "matrix",
+      chatId: roomId,
+      messageId: requiredMessageId(messageAAtB),
+    });
+    const messageBAtA = await receivedByA;
+    expect(messageBAtA).toMatchObject({
       transport: "matrix",
       chatId: roomId,
       content: messageFromB,
       isGroupChat: false,
       wasMentioned: false,
+      replyTo: {
+        transport: "matrix",
+        chatId: roomId,
+        messageId: requiredMessageId(messageAAtB),
+      },
+    });
+    expect(messageBAtA.messageId).toEqual(expect.any(String));
+
+    const reaction = "👍";
+    const receivedReactionByB = waitForReaction(
+      accountB,
+      (event) =>
+        event.chatId === roomId &&
+        event.messageId === requiredMessageId(messageBAtA) &&
+        event.reaction === reaction,
+    );
+    await accountA.provider.sendReaction(
+      roomId,
+      requiredMessageId(messageBAtA),
+      reaction,
+    );
+    expect(await receivedReactionByB).toMatchObject({
+      transport: "matrix",
+      chatId: roomId,
+      messageId: requiredMessageId(messageBAtA),
+      reaction,
     });
 
     expect(accountA.messages).toContainEqual(
@@ -127,6 +161,12 @@ runMatrixSmoke(
     );
     expect(accountB.messages).toContainEqual(
       expect.objectContaining({ chatId: roomId, content: messageFromA }),
+    );
+
+    await accountB.provider.leaveChat(roomId, "matrix smoke leave");
+    await waitFor(
+      async () => !(await hasChat(accountB.provider, roomId)),
+      `Matrix room ${roomId} still appears in joined chats after leave`,
     );
 
     const rejectedRoomId = await controlClient.createRoom({
@@ -151,6 +191,9 @@ runMatrixSmoke(
       async () => !(await hasInvite(accountB.provider, rejectedRoomId)),
     );
     expect(await hasChat(accountB.provider, rejectedRoomId)).toBe(false);
+
+    accountB.provider.shutdownForProcessExit();
+    expect(accountB.provider.isConnected).toBe(false);
   },
 );
 
@@ -172,10 +215,14 @@ async function connectParticipant(
       join(config.stateDir, name),
     ),
     messages: [],
+    reactions: [],
     errors: [],
   };
   participant.provider.onMessage((message) =>
     participant.messages.push(message),
+  );
+  participant.provider.onReaction((reaction) =>
+    participant.reactions.push(reaction),
   );
   participant.provider.onError((error) => participant.errors.push(error));
 
@@ -222,6 +269,21 @@ async function waitForMessage(
   predicate: (message: InboundMessage) => boolean,
 ): Promise<InboundMessage> {
   return await waitFor(() => participant.messages.find(predicate));
+}
+
+async function waitForReaction(
+  participant: SmokeParticipant,
+  predicate: (reaction: InboundReaction) => boolean,
+): Promise<InboundReaction> {
+  return await waitFor(() => participant.reactions.find(predicate));
+}
+
+function requiredMessageId(message: InboundMessage): string {
+  if (!message.messageId) {
+    throw new Error("Expected Matrix smoke message to include messageId");
+  }
+
+  return message.messageId;
 }
 
 async function waitFor<T>(

@@ -24,6 +24,17 @@ export type InboundMessage = {
   replyTo?: MessageReference;
 };
 
+export type InboundReaction = {
+  chatId: string;
+  transport: TransportName;
+  messageId: string;
+  reaction: string;
+  timestamp: number;
+  reactionId?: string;
+  username?: string;
+  userId?: string;
+};
+
 export type SendMessageCommand = {
   type: "send_message";
   transport: TransportName;
@@ -32,18 +43,34 @@ export type SendMessageCommand = {
   replyTo?: MessageReference;
 };
 
+export type SendReactionCommand = {
+  type: "send_reaction";
+  transport: TransportName;
+  chatId: string;
+  messageId: string;
+  reaction: string;
+};
+
 export type SendTypingCommand = {
   type: "send_typing";
   transport: TransportName;
   chatId: string;
 };
 
-export type GatewayCommand = SendMessageCommand | SendTypingCommand;
+export type GatewayCommand =
+  | SendMessageCommand
+  | SendReactionCommand
+  | SendTypingCommand;
 
-export type GatewayEvent = {
-  type: "message";
-  message: InboundMessage;
-};
+export type GatewayEvent =
+  | {
+      type: "message";
+      message: InboundMessage;
+    }
+  | {
+      type: "reaction";
+      reaction: InboundReaction;
+    };
 
 export function isGatewayCommand(value: unknown): value is GatewayCommand {
   if (!isRecord(value)) {
@@ -61,6 +88,16 @@ export function isGatewayCommand(value: unknown): value is GatewayCommand {
 
   if (value.type === "send_typing") {
     return isTransportName(value.transport) && typeof value.chatId === "string";
+  }
+
+  if (value.type === "send_reaction") {
+    return (
+      isTransportName(value.transport) &&
+      typeof value.chatId === "string" &&
+      typeof value.messageId === "string" &&
+      typeof value.reaction === "string" &&
+      value.reaction.length > 0
+    );
   }
 
   return false;

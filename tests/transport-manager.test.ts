@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import type { InboundMessage, TransportProvider } from "../src/index.js";
+import type {
+  InboundMessage,
+  InboundReaction,
+  MessageReference,
+  TransportProvider,
+} from "../src/index.js";
 import {
   DuplicateTransportError,
   TransportManager,
@@ -21,9 +26,44 @@ test("fans outbound commands to the selected transport", async () => {
     transport: "matrix",
     chatId: "room",
   });
+  await manager.handleCommand({
+    type: "send_reaction",
+    transport: "matrix",
+    chatId: "room",
+    messageId: "$event",
+    reaction: "+1",
+  });
 
   expect(matrix.sentMessages).toEqual([{ chatId: "room", text: "hello" }]);
+  expect(matrix.sentReactions).toEqual([
+    { chatId: "room", messageId: "$event", reaction: "+1" },
+  ]);
   expect(matrix.sentTyping).toEqual(["room"]);
+});
+
+test("passes outbound reply references to the selected transport", async () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+
+  await manager.handleCommand({
+    type: "send_message",
+    transport: "matrix",
+    chatId: "room",
+    text: "hello",
+    replyTo: {
+      transport: "matrix",
+      chatId: "room",
+      messageId: "$previous",
+    },
+  });
+
+  expect(matrix.sentMessages).toEqual([
+    {
+      chatId: "room",
+      text: "hello",
+      replyTo: { transport: "matrix", chatId: "room", messageId: "$previous" },
+    },
+  ]);
 });
 
 test("fans inbound transport messages to gateway handlers", () => {
@@ -49,6 +89,31 @@ test("fans inbound transport messages to gateway handlers", () => {
       timestamp: 1,
       isGroupChat: false,
       wasMentioned: false,
+    },
+  ]);
+});
+
+test("fans inbound transport reactions to gateway handlers", () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+  const reactions: InboundReaction[] = [];
+
+  manager.onReaction((reaction) => reactions.push(reaction));
+  matrix.emitReaction({
+    chatId: "room",
+    transport: "matrix",
+    messageId: "$event",
+    reaction: "+1",
+    timestamp: 1,
+  });
+
+  expect(reactions).toEqual([
+    {
+      chatId: "room",
+      transport: "matrix",
+      messageId: "$event",
+      reaction: "+1",
+      timestamp: 1,
     },
   ]);
 });
@@ -87,9 +152,19 @@ test("rejects commands for unavailable transports", async () => {
 
 class FakeTransport implements TransportProvider {
   isConnected = false;
-  sentMessages: Array<{ chatId: string; text: string }> = [];
+  sentMessages: Array<{
+    chatId: string;
+    text: string;
+    replyTo?: MessageReference;
+  }> = [];
+  sentReactions: Array<{
+    chatId: string;
+    messageId: string;
+    reaction: string;
+  }> = [];
   sentTyping: string[] = [];
   readonly #messageHandlers = new Set<(message: InboundMessage) => void>();
+  readonly #reactionHandlers = new Set<(reaction: InboundReaction) => void>();
   readonly #errorHandlers = new Set<(error: unknown) => void>();
 
   constructor(readonly type: TransportProvider["type"]) {}
@@ -102,8 +177,20 @@ class FakeTransport implements TransportProvider {
     this.isConnected = false;
   }
 
-  async sendMessage(chatId: string, text: string): Promise<void> {
-    this.sentMessages.push({ chatId, text });
+  async sendMessage(
+    chatId: string,
+    text: string,
+    replyTo?: MessageReference,
+  ): Promise<void> {
+    this.sentMessages.push({ chatId, text, ...(replyTo ? { replyTo } : {}) });
+  }
+
+  async sendReaction(
+    chatId: string,
+    messageId: string,
+    reaction: string,
+  ): Promise<void> {
+    this.sentReactions.push({ chatId, messageId, reaction });
   }
 
   async sendTyping(chatId: string): Promise<void> {
@@ -114,6 +201,10 @@ class FakeTransport implements TransportProvider {
     this.#messageHandlers.add(handler);
   }
 
+  onReaction(handler: (reaction: InboundReaction) => void): void {
+    this.#reactionHandlers.add(handler);
+  }
+
   onError(handler: (error: unknown) => void): void {
     this.#errorHandlers.add(handler);
   }
@@ -121,6 +212,12 @@ class FakeTransport implements TransportProvider {
   emitMessage(message: InboundMessage): void {
     for (const handler of this.#messageHandlers) {
       handler(message);
+    }
+  }
+
+  emitReaction(reaction: InboundReaction): void {
+    for (const handler of this.#reactionHandlers) {
+      handler(reaction);
     }
   }
 

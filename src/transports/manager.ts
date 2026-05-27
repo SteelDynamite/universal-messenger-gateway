@@ -1,11 +1,13 @@
 import type {
   GatewayCommand,
   InboundMessage,
+  InboundReaction,
   TransportName,
 } from "../protocol.js";
 import type { TransportProvider } from "./interface.js";
 
 export type GatewayMessageHandler = (message: InboundMessage) => void;
+export type GatewayReactionHandler = (reaction: InboundReaction) => void;
 export type GatewayTransportErrorHandler = (
   transport: TransportName,
   error: unknown,
@@ -28,6 +30,7 @@ export class DuplicateTransportError extends Error {
 export class TransportManager {
   readonly transports = new Map<TransportName, TransportProvider>();
   readonly #messageHandlers = new Set<GatewayMessageHandler>();
+  readonly #reactionHandlers = new Set<GatewayReactionHandler>();
   readonly #errorHandlers = new Set<GatewayTransportErrorHandler>();
 
   constructor(transports: Iterable<TransportProvider> = []) {
@@ -43,11 +46,16 @@ export class TransportManager {
 
     this.transports.set(transport.type, transport);
     transport.onMessage((message) => this.emitMessage(message));
+    transport.onReaction?.((reaction) => this.emitReaction(reaction));
     transport.onError((error) => this.emitError(transport.type, error));
   }
 
   onMessage(handler: GatewayMessageHandler): void {
     this.#messageHandlers.add(handler);
+  }
+
+  onReaction(handler: GatewayReactionHandler): void {
+    this.#reactionHandlers.add(handler);
   }
 
   onError(handler: GatewayTransportErrorHandler): void {
@@ -71,7 +79,23 @@ export class TransportManager {
 
     switch (command.type) {
       case "send_message":
-        await transport.sendMessage(command.chatId, command.text);
+        await transport.sendMessage(
+          command.chatId,
+          command.text,
+          command.replyTo,
+        );
+        break;
+      case "send_reaction":
+        if (!transport.sendReaction) {
+          throw new Error(
+            `Transport does not support reactions: ${transport.type}`,
+          );
+        }
+        await transport.sendReaction(
+          command.chatId,
+          command.messageId,
+          command.reaction,
+        );
         break;
       case "send_typing":
         await transport.sendTyping(command.chatId);
@@ -92,6 +116,12 @@ export class TransportManager {
   private emitMessage(message: InboundMessage): void {
     for (const handler of this.#messageHandlers) {
       handler(message);
+    }
+  }
+
+  private emitReaction(reaction: InboundReaction): void {
+    for (const handler of this.#reactionHandlers) {
+      handler(reaction);
     }
   }
 

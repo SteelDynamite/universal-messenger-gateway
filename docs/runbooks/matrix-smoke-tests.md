@@ -11,6 +11,14 @@ Run a live encrypted Matrix round-trip between two controlled test accounts.
 
 ## Command
 
+Use the gitignored local env file when it exists:
+
+```sh
+set -a && source state/matrix-smoke.env && set +a && UMG_MATRIX_SMOKE=1 bun run test:matrix-smoke
+```
+
+Or export the variables directly:
+
 ```sh
 UMG_MATRIX_SMOKE=1 \
 UMG_MATRIX_HOMESERVER_URL=https://matrix.example \
@@ -34,10 +42,14 @@ UMG_MATRIX_A_RECOVERY_KEY='word1 word2 word3 ...'
 ## Current Coverage
 
 - Account A creates a private encrypted room and invites account B.
-- Account B joins through the transport's current autojoin behavior.
+- Account B sees the pending invite and accepts explicitly.
 - Account A sends encrypted text through `MatrixProvider`; account B receives normalized text.
-- Account B replies through `MatrixProvider`; account A receives normalized text.
-- Both accounts leave the smoke-test room during cleanup.
+- Account B replies with reply context; account A receives normalized text and `replyTo`.
+- Account A reacts to Account B's message; account B receives normalized reaction context.
+- Account B leaves explicitly.
+- Account B rejects a second invite without joining.
+- Account B's process-exit shutdown path clears connection state.
+- Both accounts leave smoke-test rooms during cleanup.
 
 The test is skipped unless `UMG_MATRIX_SMOKE=1` is set, so normal `npm test` runs do not
 contact Matrix.

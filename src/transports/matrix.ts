@@ -9,7 +9,11 @@ import {
   SimpleFsStorageProvider,
 } from "matrix-bot-sdk";
 import type { TransportConfig } from "../config.js";
-import type { InboundMessage } from "../protocol.js";
+import type {
+  InboundMessage,
+  InboundReaction,
+  MessageReference,
+} from "../protocol.js";
 import type {
   TransportChat,
   TransportInvite,
@@ -40,6 +44,22 @@ type MatrixTransportConfig = {
 
 type MatrixEvent = MatrixRoomEvent & {
   event_id?: string;
+  type?: string;
+  content?: MatrixEventContent;
+};
+
+type MatrixEventContent = {
+  body?: unknown;
+  format?: unknown;
+  formatted_body?: unknown;
+  "m.relates_to"?: {
+    "m.in_reply_to"?: {
+      event_id?: unknown;
+    };
+    event_id?: unknown;
+    key?: unknown;
+    rel_type?: unknown;
+  };
 };
 
 type MatrixInviteEvent = {
@@ -81,6 +101,7 @@ export class MatrixProvider implements TransportProvider {
   #client: MatrixClient | undefined;
   #isConnected = false;
   #messageHandler?: (message: InboundMessage) => void;
+  #reactionHandler?: (reaction: InboundReaction) => void;
   #errorHandler?: (error: unknown) => void;
   #botUserId: string | undefined;
   #joinedRooms = new Set<string>();
@@ -156,6 +177,13 @@ export class MatrixProvider implements TransportProvider {
       void this.handleMessage(roomId, event).catch((error: unknown) => {
         this.#errorHandler?.(error);
       });
+    });
+    this.#client.on("room.event", (roomId: string, event: MatrixEvent) => {
+      if (event.type !== "m.reaction") {
+        return;
+      }
+
+      this.handleReaction(roomId, event);
     });
     this.#client.on(
       "room.failed_decryption",
@@ -236,7 +264,11 @@ export class MatrixProvider implements TransportProvider {
     return Promise.resolve([...this.#pendingInvites.values()]);
   }
 
-  async sendMessage(chatId: string, text: string): Promise<void> {
+  async sendMessage(
+    chatId: string,
+    text: string,
+    replyTo?: MessageReference,
+  ): Promise<void> {
     if (!this.#client) {
       throw new Error("Matrix client not connected");
     }
@@ -248,10 +280,33 @@ export class MatrixProvider implements TransportProvider {
     await this.#client.sendMessage(chatId, {
       msgtype: "m.text",
       body,
+      ...(replyTo?.transport === this.type && replyTo.chatId === chatId
+        ? {
+            "m.relates_to": {
+              "m.in_reply_to": { event_id: replyTo.messageId },
+            },
+          }
+        : {}),
       ...(formattedBody
         ? { format: "org.matrix.custom.html", formatted_body: formattedBody }
         : {}),
     });
+  }
+
+  async sendReaction(
+    chatId: string,
+    messageId: string,
+    reaction: string,
+  ): Promise<void> {
+    if (!this.#client) {
+      throw new Error("Matrix client not connected");
+    }
+
+    await this.#client.unstableApis.addReactionToEvent(
+      chatId,
+      messageId,
+      reaction,
+    );
   }
 
   async sendTyping(chatId: string): Promise<void> {
@@ -293,6 +348,10 @@ export class MatrixProvider implements TransportProvider {
 
   onMessage(handler: (message: InboundMessage) => void): void {
     this.#messageHandler = handler;
+  }
+
+  onReaction(handler: (reaction: InboundReaction) => void): void {
+    this.#reactionHandler = handler;
   }
 
   onError(handler: (error: unknown) => void): void {
@@ -447,6 +506,33 @@ export class MatrixProvider implements TransportProvider {
       isGroupChat,
       wasMentioned,
       ...(event.event_id ? { messageId: event.event_id } : {}),
+      ...messageReplyTo(roomId, event.content, this.type),
+    });
+  }
+
+  private handleReaction(roomId: string, event: MatrixEvent): void {
+    if (!this.#botUserId || event.sender === this.#botUserId) {
+      return;
+    }
+
+    const relatesTo = event.content?.["m.relates_to"];
+    if (
+      relatesTo?.rel_type !== "m.annotation" ||
+      typeof relatesTo.event_id !== "string" ||
+      typeof relatesTo.key !== "string"
+    ) {
+      return;
+    }
+
+    const userId = event.sender;
+    this.#reactionHandler?.({
+      chatId: roomId,
+      transport: this.type,
+      messageId: relatesTo.event_id,
+      reaction: relatesTo.key,
+      timestamp: event.origin_server_ts ?? Date.now(),
+      ...(event.event_id ? { reactionId: event.event_id } : {}),
+      ...(userId ? { userId, username: extractUsername(userId) } : {}),
     });
   }
 
@@ -482,6 +568,17 @@ function inviteDetails(event: MatrixInviteEvent): {
         : {}),
     ...(event.sender ? { inviter: event.sender } : {}),
   };
+}
+
+function messageReplyTo(
+  roomId: string,
+  content: MatrixEventContent | undefined,
+  transport: "matrix",
+): { replyTo?: MessageReference } {
+  const eventId = content?.["m.relates_to"]?.["m.in_reply_to"]?.event_id;
+  return typeof eventId === "string"
+    ? { replyTo: { transport, chatId: roomId, messageId: eventId } }
+    : {};
 }
 
 export function createMatrixProvider(
