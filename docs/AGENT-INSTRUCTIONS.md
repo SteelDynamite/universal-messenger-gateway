@@ -38,3 +38,8 @@ ADRs, which exist to record a decision.
 ## Active work
 
 Track in-flight work in `docs/_MEMORY.md`.
+
+## Feature Testing and Completion
+
+For feature verification, follow `docs/runbooks/feature-testing.md`.
+After completing any feature or fix, follow `docs/runbooks/feature-completion.md`, unless you are blocked or have questions.
