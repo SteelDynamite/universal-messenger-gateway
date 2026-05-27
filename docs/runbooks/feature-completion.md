@@ -5,6 +5,8 @@ failing tests, unexpected diffs, or unclear documentation placement.
 
 ## Verify
 
+Before running checks, decide whether the change needs additional local tests. Add them first.
+
 Run local checks:
 
 ```sh
@@ -12,6 +14,8 @@ bun run typecheck
 bun run lint
 bun run test
 ```
+
+Before running live smoke, decide whether Matrix smoke coverage should expand for new transport, protocol, or live Matrix behavior. Update it first when needed.
 
 Then run the live Matrix smoke test when `state/matrix-smoke.env` exists:
 
