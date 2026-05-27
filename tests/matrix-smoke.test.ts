@@ -1,17 +1,21 @@
 import { join } from "node:path";
-import { Writable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import { MatrixClient } from "matrix-bot-sdk";
 import { afterEach, expect, test } from "vitest";
 import type {
+  GatewayEvent,
   InboundMessage,
   InboundReaction,
+  TransportInvite,
   TransportProvider,
 } from "../src/index.js";
 import {
   MatrixProvider,
+  TransportManager,
   createConfiguredTransports,
   loadGatewayConfig,
   runAdminCli,
+  runGatewayStdio,
 } from "../src/index.js";
 
 const SMOKE_TIMEOUT_MS = 90_000;
@@ -21,6 +25,7 @@ type SmokeConfig = {
   homeserverUrl: string;
   accountA: SmokeAccount;
   accountB: SmokeAccount;
+  accountC: SmokeAccount;
   stateDir: string;
 };
 
@@ -45,9 +50,7 @@ const roomsToLeave: string[] = [];
 afterEach(async () => {
   await Promise.all(
     connectedParticipants.flatMap(({ provider }) =>
-      roomsToLeave.map((roomId) =>
-        provider.leaveChat(roomId, "matrix smoke cleanup").catch(() => {}),
-      ),
+      cleanupJoinedRooms(provider).catch(() => {}),
     ),
   );
   await Promise.all(
@@ -59,8 +62,21 @@ afterEach(async () => {
   roomsToLeave.length = 0;
 });
 
+async function cleanupJoinedRooms(provider: MatrixProvider): Promise<void> {
+  const joinedRoomIds = new Set(
+    (await provider.listChats()).map((chat) => chat.chatId),
+  );
+  await Promise.all(
+    roomsToLeave
+      .filter((roomId) => joinedRoomIds.has(roomId))
+      .map((roomId) =>
+        provider.leaveChat(roomId, "matrix smoke cleanup").catch(() => {}),
+      ),
+  );
+}
+
 runMatrixSmoke(
-  "round-trips encrypted Matrix messages between two accounts",
+  "round-trips encrypted Matrix messages between live accounts",
   { timeout: SMOKE_TIMEOUT_MS },
   async () => {
     if (!config) {
@@ -75,13 +91,28 @@ runMatrixSmoke(
       config.homeserverUrl,
       config.accountB.accessToken,
     ).getUserId();
+    const accountCUserId = await new MatrixClient(
+      config.homeserverUrl,
+      config.accountC.accessToken,
+    ).getUserId();
+    const accountAUserId = await controlClient.getUserId();
     const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     const accountA = await connectAdminConfiguredParticipant(
       config.accountA,
       config,
+      stateName("a", accountAUserId),
     );
-    const accountB = await connectParticipant(config.accountB, config, "b");
+    const accountB = await connectParticipant(
+      config.accountB,
+      config,
+      stateName("b", accountBUserId),
+    );
+    const accountC = await connectParticipant(
+      config.accountC,
+      config,
+      stateName("c", accountCUserId),
+    );
 
     const roomId = await controlClient.createRoom({
       preset: "private_chat",
@@ -100,7 +131,14 @@ runMatrixSmoke(
     roomsToLeave.push(roomId);
 
     await waitForChat(accountA.provider, roomId);
-    await waitForInvite(accountB.provider, roomId);
+    const inviteForB = await waitForInvite(accountB.provider, roomId);
+    expect(inviteForB).toMatchObject({
+      inviteId: roomId,
+      inviter: accountAUserId,
+    });
+    if (inviteForB.displayName) {
+      expect(inviteForB.displayName).toBe(`umg smoke ${runId}`);
+    }
     expect(await hasChat(accountB.provider, roomId)).toBe(false);
 
     await accountB.provider.acceptInvite(roomId);
@@ -169,6 +207,133 @@ runMatrixSmoke(
       reaction,
     });
 
+    const gatewayOutput = collectOutput();
+    const gatewayManager = new TransportManager([accountA.provider]);
+    gatewayManager.onMessage((message) => {
+      accountA.messages.push(message);
+      writeGatewayEvent(gatewayOutput, { type: "message", message });
+    });
+    gatewayManager.onReaction((reaction) => {
+      accountA.reactions.push(reaction);
+      writeGatewayEvent(gatewayOutput, { type: "reaction", reaction });
+    });
+    gatewayManager.onError((_transport, error) => accountA.errors.push(error));
+
+    const gatewayMessage = `umg smoke gateway ${runId}`;
+    const receivedGatewayMessageByB = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === roomId && message.content === gatewayMessage,
+    );
+    expect(
+      await runGatewayStdio({
+        input: Readable.from([
+          `${JSON.stringify({ type: "send_typing", transport: "matrix", chatId: roomId })}\n`,
+          `${JSON.stringify({ type: "send_message", transport: "matrix", chatId: roomId, text: gatewayMessage })}\n`,
+        ]),
+        errorOutput: collectOutput(),
+        handleCommand: (command) => gatewayManager.handleCommand(command),
+      }),
+    ).toBe(0);
+    expect(await receivedGatewayMessageByB).toMatchObject({
+      transport: "matrix",
+      chatId: roomId,
+      content: gatewayMessage,
+    });
+
+    const gatewayInbound = `umg smoke gateway inbound ${runId}`;
+    const receivedGatewayInboundByA = waitForMessage(
+      accountA,
+      (message) =>
+        message.chatId === roomId && message.content === gatewayInbound,
+    );
+    await accountB.provider.sendMessage(roomId, gatewayInbound);
+    const gatewayInboundAtA = await receivedGatewayInboundByA;
+    expect(readGatewayEvents(gatewayOutput)).toContainEqual({
+      type: "message",
+      message: expect.objectContaining({
+        chatId: roomId,
+        content: gatewayInbound,
+        messageId: requiredMessageId(gatewayInboundAtA),
+      }),
+    });
+
+    const formattedRoomId = await controlClient.createRoom({
+      preset: "private_chat",
+      visibility: "private",
+      is_direct: true,
+      invite: [accountBUserId],
+      name: `umg smoke formatted ${runId}`,
+    });
+    roomsToLeave.push(formattedRoomId);
+    await waitForChat(accountA.provider, formattedRoomId);
+    await waitForInvite(accountB.provider, formattedRoomId);
+    await accountB.provider.acceptInvite(formattedRoomId);
+    await waitForChat(accountB.provider, formattedRoomId);
+
+    const formattedMessage = `umg smoke **bold** \`code\` ${runId}`;
+    const receivedFormattedByB = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === formattedRoomId &&
+        message.content === formattedMessage,
+    );
+    await accountA.provider.sendMessage(formattedRoomId, formattedMessage);
+    const formattedAtB = await receivedFormattedByB;
+    const rawFormattedEvent = await controlClient.getEvent(
+      formattedRoomId,
+      requiredMessageId(formattedAtB),
+    );
+    expect(rawFormattedEvent.content).toMatchObject({
+      body: formattedMessage,
+      format: "org.matrix.custom.html",
+    });
+    expect(rawFormattedEvent.content.formatted_body).toContain(
+      "<strong>bold</strong>",
+    );
+    expect(rawFormattedEvent.content.formatted_body).toContain(
+      "<code>code</code>",
+    );
+
+    const groupRoomId = await controlClient.createRoom({
+      preset: "private_chat",
+      visibility: "private",
+      invite: [accountBUserId, accountCUserId],
+      name: `umg smoke group ${runId}`,
+      initial_state: [
+        {
+          type: "m.room.encryption",
+          state_key: "",
+          content: { algorithm: "m.megolm.v1.aes-sha2" },
+        },
+      ],
+    });
+    roomsToLeave.push(groupRoomId);
+    await waitForChat(accountA.provider, groupRoomId);
+    await waitForInvite(accountB.provider, groupRoomId);
+    await waitForInvite(accountC.provider, groupRoomId);
+    await accountB.provider.acceptInvite(groupRoomId);
+    await accountC.provider.acceptInvite(groupRoomId);
+    await waitForChat(accountB.provider, groupRoomId);
+    await waitForChat(accountC.provider, groupRoomId);
+
+    const groupMessage = `${accountAUserId} umg smoke group mention ${runId}`;
+    const groupMessageContent = `umg smoke group mention ${runId}`;
+    const receivedGroupMessageByA = waitForMessage(
+      accountA,
+      (message) =>
+        message.chatId === groupRoomId &&
+        message.content === groupMessageContent,
+    );
+    await accountB.provider.sendMessage(groupRoomId, groupMessage);
+    expect(await receivedGroupMessageByA).toMatchObject({
+      transport: "matrix",
+      chatId: groupRoomId,
+      content: groupMessageContent,
+      isGroupChat: true,
+      wasMentioned: true,
+    });
+
     expect(accountA.messages).toContainEqual(
       expect.objectContaining({ chatId: roomId, content: messageFromB }),
     );
@@ -207,6 +372,9 @@ runMatrixSmoke(
 
     accountB.provider.shutdownForProcessExit();
     expect(accountB.provider.isConnected).toBe(false);
+    expectNoUnexpectedErrors(accountA);
+    expectNoUnexpectedErrors(accountB);
+    expectNoUnexpectedErrors(accountC);
   },
 );
 
@@ -247,8 +415,9 @@ async function connectParticipant(
 async function connectAdminConfiguredParticipant(
   account: SmokeAccount,
   config: SmokeConfig,
+  name: string,
 ): Promise<SmokeParticipant> {
-  const stateDir = join(config.stateDir, "a");
+  const stateDir = join(config.stateDir, name);
   const output = collectOutput();
   const errorOutput = collectOutput();
   const env = { UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR: stateDir };
@@ -329,6 +498,10 @@ async function connectAdminConfiguredParticipant(
   return participant;
 }
 
+function stateName(label: string, userId: string): string {
+  return `${label}-${userId.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+}
+
 function registerParticipant(provider: MatrixProvider): SmokeParticipant {
   const participant: SmokeParticipant = {
     provider,
@@ -369,8 +542,11 @@ async function waitForChat(
 async function waitForInvite(
   provider: MatrixProvider,
   inviteId: string,
-): Promise<void> {
-  await waitFor(async () => await hasInvite(provider, inviteId));
+): Promise<TransportInvite> {
+  return await waitFor(async () => {
+    const invites = await provider.listInvites();
+    return invites.find((invite) => invite.inviteId === inviteId);
+  });
 }
 
 async function hasChat(
@@ -411,6 +587,17 @@ function requiredMessageId(message: InboundMessage): string {
   return message.messageId;
 }
 
+function expectNoUnexpectedErrors(participant: SmokeParticipant): void {
+  expect(participant.errors.filter(isUnexpectedSmokeError)).toEqual([]);
+}
+
+function isUnexpectedSmokeError(error: unknown): boolean {
+  return !(
+    error instanceof Error &&
+    error.message.startsWith("Matrix cross-sign skipped:")
+  );
+}
+
 async function waitFor<T>(
   read: () => T | undefined | false | Promise<T | undefined | false>,
   message = "Timed out waiting for Matrix smoke condition",
@@ -442,10 +629,16 @@ function matrixSmokeConfig(): SmokeConfig | undefined {
   const homeserverUrl = process.env.UMG_MATRIX_HOMESERVER_URL;
   const accountAAccessToken = process.env.UMG_MATRIX_A_ACCESS_TOKEN;
   const accountBAccessToken = process.env.UMG_MATRIX_B_ACCESS_TOKEN;
+  const accountCAccessToken = process.env.UMG_MATRIX_C_ACCESS_TOKEN;
 
-  if (!homeserverUrl || !accountAAccessToken || !accountBAccessToken) {
+  if (
+    !homeserverUrl ||
+    !accountAAccessToken ||
+    !accountBAccessToken ||
+    !accountCAccessToken
+  ) {
     throw new Error(
-      "Matrix smoke test requires UMG_MATRIX_HOMESERVER_URL, UMG_MATRIX_A_ACCESS_TOKEN, and UMG_MATRIX_B_ACCESS_TOKEN",
+      "Matrix smoke test requires UMG_MATRIX_HOMESERVER_URL, UMG_MATRIX_A_ACCESS_TOKEN, UMG_MATRIX_B_ACCESS_TOKEN, and UMG_MATRIX_C_ACCESS_TOKEN",
     );
   }
 
@@ -469,8 +662,30 @@ function matrixSmokeConfig(): SmokeConfig | undefined {
         ? { recoveryKey: process.env.UMG_MATRIX_B_RECOVERY_KEY }
         : {}),
     },
+    accountC: {
+      accessToken: accountCAccessToken,
+      ...(process.env.UMG_MATRIX_C_ACCOUNT_PASSWORD
+        ? { accountPassword: process.env.UMG_MATRIX_C_ACCOUNT_PASSWORD }
+        : {}),
+      ...(process.env.UMG_MATRIX_C_RECOVERY_KEY
+        ? { recoveryKey: process.env.UMG_MATRIX_C_RECOVERY_KEY }
+        : {}),
+    },
     stateDir: process.env.UMG_MATRIX_SMOKE_STATE_DIR ?? "state/matrix-smoke",
   };
+}
+
+function writeGatewayEvent(output: Writable, event: GatewayEvent): void {
+  output.write(`${JSON.stringify(event)}\n`);
+}
+
+function readGatewayEvents(output: { text(): string }): GatewayEvent[] {
+  return output
+    .text()
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as GatewayEvent);
 }
 
 function collectOutput(): Writable & { text(): string } {

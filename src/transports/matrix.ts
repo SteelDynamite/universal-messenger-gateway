@@ -179,6 +179,11 @@ export class MatrixProvider implements TransportProvider {
       });
     });
     this.#client.on("room.event", (roomId: string, event: MatrixEvent) => {
+      if (event.type === "m.room.member") {
+        this.refreshRoomMemberCount(roomId);
+        return;
+      }
+
       if (event.type !== "m.reaction") {
         return;
       }
@@ -234,11 +239,7 @@ export class MatrixProvider implements TransportProvider {
 
   shutdownForProcessExit(): void {
     try {
-      (
-        this.#client as unknown as {
-          crypto?: { engine?: { machine?: { close?(): void } } };
-        }
-      )?.crypto?.engine?.machine?.close?.();
+      this.#client?.stop();
     } catch {
       // Process exit is already in progress.
     }
@@ -534,6 +535,13 @@ export class MatrixProvider implements TransportProvider {
       ...(event.event_id ? { reactionId: event.event_id } : {}),
       ...(userId ? { userId, username: extractUsername(userId) } : {}),
     });
+  }
+
+  private refreshRoomMemberCount(roomId: string): void {
+    this.#client
+      ?.getJoinedRoomMembers(roomId)
+      .then((members) => this.#roomMemberCount.set(roomId, members.length))
+      .catch(() => {});
   }
 
   private resetClientState(): void {
