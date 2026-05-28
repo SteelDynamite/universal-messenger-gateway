@@ -72,6 +72,75 @@ test("sends typed lines to the selected target", async () => {
   expect(matrix.isConnected).toBe(false);
 });
 
+test("interactive input edits at the cursor", async () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+
+  await runChatCli({
+    input: interactiveInput([
+      "/target matrix room",
+      "\r",
+      "helo",
+      "\u001b[D",
+      "l",
+      "\r",
+      "/quit",
+      "\r",
+    ]),
+    output: interactiveOutput(),
+    errorOutput: collectOutput(),
+    manager,
+  });
+
+  expect(matrix.sentMessages).toEqual([{ chatId: "room", text: "hello" }]);
+});
+
+test("interactive input accepts pasted text", async () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+
+  await runChatCli({
+    input: interactiveInput([
+      "/target matrix room",
+      "\r",
+      "pasted message",
+      "\r",
+      "/quit",
+      "\r",
+    ]),
+    output: interactiveOutput(),
+    errorOutput: collectOutput(),
+    manager,
+  });
+
+  expect(matrix.sentMessages).toEqual([
+    { chatId: "room", text: "pasted message" },
+  ]);
+});
+
+test("interactive input normalizes bracketed paste newlines", async () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+
+  await runChatCli({
+    input: interactiveInput([
+      "/target matrix room",
+      "\r",
+      "\u001b[200~hello\nworld\u001b[201~",
+      "\r",
+      "/quit",
+      "\r",
+    ]),
+    output: interactiveOutput(),
+    errorOutput: collectOutput(),
+    manager,
+  });
+
+  expect(matrix.sentMessages).toEqual([
+    { chatId: "room", text: "hello world" },
+  ]);
+});
+
 test("auto-selects the first inbound target", async () => {
   const matrix = new FakeTransport("matrix");
   const manager = new TransportManager([matrix]);
@@ -216,6 +285,36 @@ function scriptedInput(source: string): PassThrough {
   });
 
   return input;
+}
+
+function interactiveInput(chunks: string[]): PassThrough & {
+  isTTY: true;
+  setRawMode(mode: boolean): void;
+} {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: true;
+    setRawMode(mode: boolean): void;
+  };
+  input.isTTY = true;
+  input.setRawMode = () => {};
+
+  const writeChunk = (index: number) => {
+    if (index >= chunks.length) {
+      input.end();
+      return;
+    }
+    input.write(chunks[index]);
+    setImmediate(() => writeChunk(index + 1));
+  };
+  setImmediate(() => writeChunk(0));
+
+  return input;
+}
+
+function interactiveOutput(): Writable & { isTTY: true; text(): string } {
+  const output = collectOutput() as Writable & { isTTY: true; text(): string };
+  output.isTTY = true;
+  return output;
 }
 
 function collectOutput(): Writable & { text(): string } {

@@ -241,13 +241,15 @@ async function runInteractiveChat({
   reloadTransports,
 }: ChatRuntime & { input: TtyInput; output: TtyOutput }): Promise<number> {
   let buffer = "";
+  let cursorIndex = 0;
   let suggestions: Suggestion[] = [];
   let selectedSuggestion = 0;
   let renderedLineCount = 0;
   let done = false;
+  let showSuggestions = true;
 
   const refreshSuggestions = () => {
-    suggestions = suggestionsFor(buffer, state, client);
+    suggestions = showSuggestions ? suggestionsFor(buffer, state, client) : [];
     if (selectedSuggestion >= suggestions.length) {
       selectedSuggestion = 0;
     }
@@ -258,6 +260,7 @@ async function runInteractiveChat({
       output,
       state.currentTarget,
       buffer,
+      cursorIndex,
       suggestions,
       selectedSuggestion,
       renderedLineCount,
@@ -301,16 +304,13 @@ async function runInteractiveChat({
         void handleKeypress(String(chunk)).catch(reject);
       };
       const handleKeypress = async (key: string) => {
-        if (key === "\u0003") {
-          done = true;
-          resolve();
-          return;
-        }
-        if (key === "\r" || key === "\n") {
+        const submitInput = async () => {
           const selectedValue = suggestions[selectedSuggestion]?.value;
           if (selectedValue && selectedValue !== buffer) {
             buffer = selectedValue;
+            cursorIndex = buffer.length;
             selectedSuggestion = 0;
+            showSuggestions = true;
             render();
             return;
           }
@@ -325,6 +325,8 @@ async function runInteractiveChat({
             reloadTransports,
           });
           buffer = "";
+          cursorIndex = 0;
+          showSuggestions = true;
 
           if (shouldQuit) {
             done = true;
@@ -333,61 +335,141 @@ async function runInteractiveChat({
           }
 
           render();
+        };
+
+        const insertText = (text: string) => {
+          if (!text) {
+            return;
+          }
+          buffer = `${buffer.slice(0, cursorIndex)}${text}${buffer.slice(cursorIndex)}`;
+          cursorIndex += text.length;
+          selectedSuggestion = 0;
+          showSuggestions = true;
+          render();
+        };
+
+        if (key.includes("\u001b[200~")) {
+          insertText(normalizePastedText(stripBracketedPaste(key)));
+          return;
+        }
+        if (key.length > 1 && !key.startsWith("\u001b")) {
+          insertText(normalizePastedText(key));
+          return;
+        }
+        if (key === "\u0003") {
+          done = true;
+          resolve();
+          return;
+        }
+        if (key === "\u0001" || key === "\u001b[H" || key === "\u001b[1~") {
+          cursorIndex = 0;
+          render();
+          return;
+        }
+        if (key === "\u0005" || key === "\u001b[F" || key === "\u001b[4~") {
+          cursorIndex = buffer.length;
+          render();
+          return;
+        }
+        if (key === "\u0004") {
+          if (buffer.length === 0) {
+            done = true;
+            resolve();
+            return;
+          }
+          if (cursorIndex < buffer.length) {
+            buffer = `${buffer.slice(0, cursorIndex)}${buffer.slice(cursorIndex + 1)}`;
+            selectedSuggestion = 0;
+            showSuggestions = true;
+            render();
+          }
+          return;
+        }
+        if (key === "\u0015") {
+          buffer = buffer.slice(cursorIndex);
+          cursorIndex = 0;
+          selectedSuggestion = 0;
+          showSuggestions = true;
+          render();
+          return;
+        }
+        if (key === "\u000b") {
+          buffer = buffer.slice(0, cursorIndex);
+          selectedSuggestion = 0;
+          showSuggestions = true;
+          render();
+          return;
+        }
+        if (key === "\u0017") {
+          const newCursorIndex = previousWordStart(buffer, cursorIndex);
+          buffer = `${buffer.slice(0, newCursorIndex)}${buffer.slice(cursorIndex)}`;
+          cursorIndex = newCursorIndex;
+          selectedSuggestion = 0;
+          showSuggestions = true;
+          render();
+          return;
+        }
+        if (key === "\f") {
+          render();
+          return;
+        }
+        if (key === "\r" || key === "\n") {
+          await submitInput();
           return;
         }
         if (key === "\u001b") {
-          suggestions = [];
+          showSuggestions = false;
           selectedSuggestion = 0;
-          renderedLineCount = renderPrompt(
-            output,
-            state.currentTarget,
-            buffer,
-            suggestions,
-            0,
-            renderedLineCount,
-          );
+          render();
           return;
         }
-        if (key === "\u001b[A") {
+        if (key === "\u001b[A" && suggestions.length > 0) {
           selectedSuggestion = wrapSuggestion(
             selectedSuggestion - 1,
             suggestions,
           );
-          renderedLineCount = renderPrompt(
-            output,
-            state.currentTarget,
-            buffer,
-            suggestions,
-            selectedSuggestion,
-            renderedLineCount,
-          );
+          render();
           return;
         }
-        if (key === "\u001b[B") {
+        if (key === "\u001b[B" && suggestions.length > 0) {
           selectedSuggestion = wrapSuggestion(
             selectedSuggestion + 1,
             suggestions,
           );
-          renderedLineCount = renderPrompt(
-            output,
-            state.currentTarget,
-            buffer,
-            suggestions,
-            selectedSuggestion,
-            renderedLineCount,
-          );
+          render();
+          return;
+        }
+        if (key === "\u001b[D") {
+          cursorIndex = Math.max(0, cursorIndex - 1);
+          render();
+          return;
+        }
+        if (key === "\u001b[C") {
+          cursorIndex = Math.min(buffer.length, cursorIndex + 1);
+          render();
+          return;
+        }
+        if (key === "\u001b[3~") {
+          if (cursorIndex < buffer.length) {
+            buffer = `${buffer.slice(0, cursorIndex)}${buffer.slice(cursorIndex + 1)}`;
+            selectedSuggestion = 0;
+            showSuggestions = true;
+            render();
+          }
           return;
         }
         if (key === "\u007f" || key === "\b") {
-          buffer = buffer.slice(0, -1);
-          selectedSuggestion = 0;
-          render();
+          if (cursorIndex > 0) {
+            buffer = `${buffer.slice(0, cursorIndex - 1)}${buffer.slice(cursorIndex)}`;
+            cursorIndex -= 1;
+            selectedSuggestion = 0;
+            showSuggestions = true;
+            render();
+          }
           return;
         }
         if (isPrintable(key)) {
-          buffer += key;
-          selectedSuggestion = 0;
-          render();
+          insertText(key);
         }
       };
 
@@ -1067,15 +1149,18 @@ function renderPrompt(
   output: Writable,
   target: ChatTarget | undefined,
   buffer: string,
+  cursorIndex: number,
   suggestions: Suggestion[],
   selectedSuggestion: number,
   previousLineCount: number,
 ): number {
   clearPrompt(output, previousLineCount);
-  const prompt = `${formatPromptTarget(target)} > ${buffer}`;
+  const promptPrefix = `${formatPromptTarget(target)} > `;
+  const prompt = `${promptPrefix}${buffer}`;
   output.write(prompt);
 
   if (suggestions.length === 0) {
+    moveCursorToInputIndex(output, promptPrefix.length, cursorIndex);
     return 1;
   }
 
@@ -1084,9 +1169,61 @@ function renderPrompt(
       `\n${index === selectedSuggestion ? ">" : " "} ${suggestion.label}`,
     );
   }
-  output.write(`\x1b[${suggestions.length}A\r\x1b[${prompt.length}C`);
+  output.write(`\x1b[${suggestions.length}A`);
+  moveCursorToInputIndex(output, promptPrefix.length, cursorIndex);
 
   return 1 + suggestions.length;
+}
+
+function moveCursorToInputIndex(
+  output: Writable,
+  promptPrefixLength: number,
+  cursorIndex: number,
+): void {
+  output.write("\r");
+  const column = promptPrefixLength + cursorIndex;
+  if (column > 0) {
+    output.write(`\x1b[${column}C`);
+  }
+}
+
+function stripBracketedPaste(value: string): string {
+  return value.replaceAll("\u001b[200~", "").replaceAll("\u001b[201~", "");
+}
+
+function normalizePastedText(value: string): string {
+  let normalized = "";
+  let previousWasNewline = false;
+
+  for (const character of value) {
+    if (character === "\r" || character === "\n") {
+      if (!previousWasNewline) {
+        normalized += " ";
+      }
+      previousWasNewline = true;
+      continue;
+    }
+
+    previousWasNewline = false;
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint < 32 || codePoint === 127) {
+      continue;
+    }
+    normalized += character;
+  }
+
+  return normalized;
+}
+
+function previousWordStart(value: string, cursorIndex: number): number {
+  let index = cursorIndex;
+  while (index > 0 && /\s/.test(value[index - 1] ?? "")) {
+    index -= 1;
+  }
+  while (index > 0 && !/\s/.test(value[index - 1] ?? "")) {
+    index -= 1;
+  }
+  return index;
 }
 
 function clearPrompt(output: Writable, renderedLineCount: number): void {
