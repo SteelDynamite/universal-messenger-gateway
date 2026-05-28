@@ -569,7 +569,13 @@ async function waitForMessage(
   participant: SmokeParticipant,
   predicate: (message: InboundMessage) => boolean,
 ): Promise<InboundMessage> {
-  return await waitFor(() => participant.messages.find(predicate));
+  return await waitFor(() => {
+    const unexpectedError = participant.errors.find(isUnexpectedSmokeError);
+    if (unexpectedError) {
+      throw unexpectedError;
+    }
+    return participant.messages.find(predicate);
+  });
 }
 
 async function waitForReaction(
