@@ -7,13 +7,14 @@ import { runGatewayStdio } from "./gateway.js";
 import { writeJsonLine } from "./io/json-lines.js";
 import { TRANSPORT_NAMES, type TransportName } from "./protocol.js";
 import { createConfiguredTransportList } from "./runtime.js";
+import { runSetupCli } from "./setup.js";
 import { resolveStateDir } from "./state.js";
 import {
   TransportManager,
   UnknownTransportError,
 } from "./transports/manager.js";
 
-const [command] = process.argv.slice(2);
+const [command, subcommand] = process.argv.slice(2);
 
 if (
   !command ||
@@ -81,6 +82,15 @@ if (
     }),
   });
   hardExit(exitCode);
+} else if (command === "setup") {
+  const stateDir = resolveStateDir();
+  process.exitCode = await runSetupCli({
+    input: process.stdin,
+    output: process.stdout,
+    errorOutput: process.stderr,
+    stateDir,
+    transport: subcommand,
+  });
 } else {
   process.stderr.write(usage());
   process.exitCode = 1;
@@ -99,9 +109,13 @@ function usage(): string {
     "  umg gateway",
     "      Run a JSON-lines agent session. Send status/configure/connect/disconnect commands over stdin.",
     "",
+    "  umg setup [transport]",
+    "      Interactively configure a transport and local secret files.",
+    "",
     "Commands:",
     "  chat         Run an interactive agent session",
     "  gateway      Run the machine-readable JSON-lines gateway",
+    "  setup        Interactively configure a transport",
     "",
     "Transports:",
     ...TRANSPORT_NAMES.map(
@@ -110,6 +124,7 @@ function usage(): string {
     "",
     "State:",
     "  Uses ./state by default. Override with UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR=/path.",
+    "  Matrix secrets may live in state/matrix-access-token.txt and state/matrix-recovery-key.txt (chmod 600).",
     "",
   ].join("\n");
 }

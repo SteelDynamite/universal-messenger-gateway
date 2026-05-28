@@ -21,6 +21,7 @@ import type {
 } from "./interface.js";
 import {
   ensureSelfCrossSigned,
+  readAccessToken,
   readAccountPassword,
   readRecoveryKey,
 } from "./matrix-crosssign.js";
@@ -642,21 +643,30 @@ export function createMatrixProvider(
   config: TransportConfig,
   context: { stateDir: string },
 ): MatrixProvider {
-  return new MatrixProvider(parseMatrixConfig(config), context.stateDir);
+  return new MatrixProvider(
+    parseMatrixConfig(config, context.stateDir),
+    context.stateDir,
+  );
 }
 
 export function parseMatrixConfig(
   config: TransportConfig,
+  stateDir?: string,
 ): MatrixTransportConfig {
   const settings = config.settings ?? {};
   const homeserverUrl = settings.homeserverUrl;
-  const accessToken = settings.accessToken;
+  const accessToken =
+    typeof settings.accessToken === "string" && settings.accessToken
+      ? settings.accessToken
+      : readAccessToken(stateDir);
 
   if (typeof homeserverUrl !== "string" || !homeserverUrl) {
     throw new MatrixConfigError("Matrix settings.homeserverUrl is required");
   }
-  if (typeof accessToken !== "string" || !accessToken) {
-    throw new MatrixConfigError("Matrix settings.accessToken is required");
+  if (!accessToken) {
+    throw new MatrixConfigError(
+      "Matrix access token is required: set settings.accessToken or create state/matrix-access-token.txt with chmod 600",
+    );
   }
 
   return {

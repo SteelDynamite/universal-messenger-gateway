@@ -164,8 +164,14 @@ function noTransportsMessage(): string {
     "No transports are enabled.",
     "",
     "Start here:",
-    "  /status",
-    "  /configure matrix --enable --set homeserverUrl=https://matrix.example --set accessToken=...",
+    "  Create state/config.json with Matrix settings, and store secrets in:",
+    "    state/matrix-access-token.txt",
+    "    state/matrix-recovery-key.txt  # for encrypted rooms",
+    "  Then run: umg chat",
+    "",
+    "Quick unencrypted setup:",
+    "  /configure matrix --enable --set homeserverUrl=https://matrix.example --set encryption=false",
+    "  # plus state/matrix-access-token.txt with chmod 600",
     "",
   ].join("\n");
 }

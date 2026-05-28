@@ -19,7 +19,9 @@ deferred until a concrete process-lifetime problem exists.
 
 Runtime state defaults to `./state` and can be overridden with
 `UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR`. The intended shape is one gateway per agent.
-Transport config loads from `state/config.json`.
+Transport config loads from `state/config.json`; `umg setup matrix` creates it
+interactively. Matrix secrets can live in `state/matrix-access-token.txt`,
+`state/matrix-recovery-key.txt`, and `state/matrix-password.txt` with `600` permissions.
 Matrix uses `state/matrix-store.json` and `state/matrix-crypto/` for SDK and E2EE state.
 
 The standard I/O contract is the actual product — pin it before adding features. See the
@@ -47,8 +49,8 @@ What carries over from the extension:
 
 - `src/protocol.ts` — standard gateway event and command envelope.
 - `src/config.ts` — `state/config.json` loading and validation.
-- `src/cli.ts` — cli entrypoint for `gateway`, `chat`, `status`, `configure`, `connect`,
-  and `disconnect`.
+- `src/cli.ts` — cli entrypoint for `gateway`, `chat`, and `setup`.
+- `src/setup.ts` — interactive setup for transport config and local secret files.
 - `src/transports/` — transport interface, manager, registry, Matrix adapter, and Matrix
   E2EE helpers. Other first-party adapters remain to be lifted.
 

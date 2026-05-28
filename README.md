@@ -28,6 +28,20 @@ Phase 1 is complete: the standalone gateway, cli, admin commands, interactive ch
 and live Matrix smoke coverage exist. No published release yet. See [`docs/`](docs/) for
 scope and the next phase.
 
+## Quick start
+
+Configure Matrix interactively:
+
+```bash
+umg setup matrix
+umg chat
+```
+
+`umg setup matrix` writes `state/config.json` and local secret files such as
+`state/matrix-access-token.txt` and `state/matrix-recovery-key.txt` with `600`
+permissions. State defaults to `./state`; override it with
+`UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR=/path`.
+
 ## Documentation
 
 This repo is an Obsidian vault rooted at the repo root; docs live in [`docs/`](docs/).

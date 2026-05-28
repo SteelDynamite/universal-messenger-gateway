@@ -94,6 +94,15 @@ const REQ_NAME: Record<number, string> = {
   [REQ_KEYS_BACKUP]: "KeysBackup",
 };
 
+export function readAccessToken(stateDir?: string): string | undefined {
+  return readSecret(
+    "UNIVERSAL_MESSENGER_GATEWAY_MATRIX_ACCESS_TOKEN",
+    "UNIVERSAL_MESSENGER_GATEWAY_MATRIX_ACCESS_TOKEN_FILE",
+    stateDir ? path.join(stateDir, "matrix-access-token.txt") : undefined,
+    "access token",
+  );
+}
+
 export function readAccountPassword(stateDir?: string): string | undefined {
   return readSecret(
     "UNIVERSAL_MESSENGER_GATEWAY_MATRIX_ACCOUNT_PASSWORD",

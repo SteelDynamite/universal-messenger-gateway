@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import {
+  readAccessToken,
   readAccountPassword,
   readRecoveryKey,
 } from "../src/transports/matrix-crosssign.js";
@@ -16,13 +17,16 @@ afterEach(async () => {
   tempDirs.length = 0;
 });
 
-test("reads Matrix recovery key and password from state files", async () => {
+test("reads Matrix secrets from state files", async () => {
   const stateDir = await tempStateDir();
+  await writeFile(join(stateDir, "matrix-access-token.txt"), "access-token\n");
   await writeFile(join(stateDir, "matrix-recovery-key.txt"), "recovery-key\n");
   await writeFile(join(stateDir, "matrix-password.txt"), "password\n");
+  await chmod(join(stateDir, "matrix-access-token.txt"), 0o600);
   await chmod(join(stateDir, "matrix-recovery-key.txt"), 0o600);
   await chmod(join(stateDir, "matrix-password.txt"), 0o600);
 
+  expect(readAccessToken(stateDir)).toBe("access-token");
   expect(readRecoveryKey(stateDir)).toBe("recovery-key");
   expect(readAccountPassword(stateDir)).toBe("password");
 });
