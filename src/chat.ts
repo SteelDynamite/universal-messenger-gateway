@@ -1,7 +1,11 @@
 import { createInterface } from "node:readline/promises";
-import { type Readable, Writable } from "node:stream";
-import { type TransportName, isTransportName } from "./protocol.js";
-import type { TransportProvider } from "./transports/interface.js";
+import type { Readable, Writable } from "node:stream";
+import { type GatewayClient, ManagerGatewayClient } from "./gateway-client.js";
+import {
+  type GatewayCommand,
+  type TransportName,
+  isTransportName,
+} from "./protocol.js";
 import {
   type TransportManager,
   UnknownTransportError,
@@ -50,7 +54,8 @@ export type RunChatCliOptions = {
   input: Readable;
   output: Writable;
   errorOutput: Writable;
-  manager: TransportManager;
+  manager?: TransportManager;
+  client?: GatewayClient;
   runAdminCommand?: (
     args: string[],
     output: Writable,
@@ -64,9 +69,25 @@ export async function runChatCli({
   output,
   errorOutput,
   manager,
+  client,
   runAdminCommand,
   reloadTransports,
 }: RunChatCliOptions): Promise<number> {
+  const gatewayClient =
+    client ??
+    (manager
+      ? new ManagerGatewayClient({
+          manager,
+          ...(runAdminCommand ? { runAdminCommand } : {}),
+          ...(reloadTransports ? { reloadTransports } : {}),
+        })
+      : undefined);
+  if (!gatewayClient) {
+    throw new Error(
+      "runChatCli requires a gateway client or transport manager",
+    );
+  }
+
   const state: ChatState = {
     currentTarget: undefined,
     knownTargets: new Map(),
@@ -79,7 +100,7 @@ export async function runChatCli({
     return await runInteractiveChat({
       input,
       output,
-      manager,
+      client: gatewayClient,
       state,
       write,
       writeError,
@@ -91,7 +112,7 @@ export async function runChatCli({
   return await runLineChat({
     input,
     output,
-    manager,
+    client: gatewayClient,
     state,
     write,
     writeError,
@@ -101,7 +122,7 @@ export async function runChatCli({
 }
 
 type ChatRuntime = {
-  manager: TransportManager;
+  client: GatewayClient;
   state: ChatState;
   write(message: string): boolean;
   writeError(message: string): boolean;
@@ -120,19 +141,19 @@ type PromptRuntime = ChatRuntime & {
 };
 
 async function startChatSession({
-  manager,
+  client,
   state,
   write,
   writeError,
 }: ChatRuntime): Promise<void> {
-  if (manager.transports.size === 0) {
+  if (client.configuredTransports().size === 0) {
     write(noTransportsMessage());
     return;
   }
 
-  await manager.connectAll();
-  await rememberListedChats(manager, state, writeError);
-  await rememberListedInvites(manager, state, writeError);
+  await client.connect();
+  await rememberListedChats(client, state, writeError);
+  await rememberListedInvites(client, state, writeError);
   write(
     "Connected. Type a message, /target <transport> <chatId>, /accept, /reject, /leave, /status, /configure, /connect, /disconnect, or /quit.\n",
   );
@@ -152,7 +173,7 @@ function noTransportsMessage(): string {
 async function runLineChat({
   input,
   output,
-  manager,
+  client,
   state,
   write,
   writeError,
@@ -165,8 +186,8 @@ async function runLineChat({
     readline.prompt();
   };
 
-  registerManagerHandlers({
-    manager,
+  registerGatewayClientHandlers({
+    client,
     state,
     write,
     writeError,
@@ -175,7 +196,7 @@ async function runLineChat({
     refreshPrompt,
   });
   await startChatSession({
-    manager,
+    client,
     state,
     write,
     writeError,
@@ -187,7 +208,7 @@ async function runLineChat({
   try {
     for await (const line of readline) {
       const shouldQuit = await handleInputLine(line, {
-        manager,
+        client,
         state,
         write,
         writeError,
@@ -205,14 +226,14 @@ async function runLineChat({
     return 0;
   } finally {
     readline.close();
-    await manager.disconnectAll();
+    await client.disconnect();
   }
 }
 
 async function runInteractiveChat({
   input,
   output,
-  manager,
+  client,
   state,
   write,
   writeError,
@@ -226,7 +247,7 @@ async function runInteractiveChat({
   let done = false;
 
   const refreshSuggestions = () => {
-    suggestions = suggestionsFor(buffer, state, manager);
+    suggestions = suggestionsFor(buffer, state, client);
     if (selectedSuggestion >= suggestions.length) {
       selectedSuggestion = 0;
     }
@@ -247,8 +268,8 @@ async function runInteractiveChat({
     renderedLineCount = 0;
   };
 
-  registerManagerHandlers({
-    manager,
+  registerGatewayClientHandlers({
+    client,
     state,
     write(message) {
       clearRenderedPrompt();
@@ -263,7 +284,7 @@ async function runInteractiveChat({
   });
 
   await startChatSession({
-    manager,
+    client,
     state,
     write,
     writeError,
@@ -296,7 +317,7 @@ async function runInteractiveChat({
 
           clearRenderedPrompt();
           const shouldQuit = await handleInputLine(buffer, {
-            manager,
+            client,
             state,
             write,
             writeError,
@@ -382,83 +403,79 @@ async function runInteractiveChat({
 
     return 0;
   } finally {
-    shutdownForProcessExit(manager);
+    client.shutdownForProcessExit?.();
     input.setRawMode?.(false);
     input.pause();
     clearRenderedPrompt();
   }
 }
 
-function shutdownForProcessExit(manager: TransportManager): void {
-  for (const transport of manager.transports.values()) {
-    transport.shutdownForProcessExit?.();
-  }
-}
-
 async function rememberListedChats(
-  manager: TransportManager,
+  client: GatewayClient,
   state: ChatState,
   writeError: (message: string) => boolean,
 ): Promise<void> {
   await Promise.all(
-    [...manager.transports.values()].map(async (transport) => {
-      if (!transport.listChats) {
-        return;
-      }
-
+    [...client.configuredTransports()].map(async (transport) => {
       try {
-        for (const chat of await transport.listChats()) {
+        for (const chat of await client.listChats(transport)) {
           rememberTarget(
             state.knownTargets,
-            transport.type,
+            transport,
             chat.chatId,
             chat.displayName,
           );
         }
       } catch (error) {
-        writeError(
-          `Could not list chats for ${transport.type}: ${String(error)}\n`,
-        );
+        writeError(`Could not list chats for ${transport}: ${String(error)}\n`);
       }
     }),
   );
 }
 
 async function rememberListedInvites(
-  manager: TransportManager,
+  client: GatewayClient,
   state: ChatState,
   writeError: (message: string) => boolean,
 ): Promise<void> {
   await Promise.all(
-    [...manager.transports.values()].map(async (transport) => {
-      if (!transport.listInvites) {
-        state.knownInvites.delete(transport.type);
-        return;
-      }
-
+    [...client.configuredTransports()].map(async (transport) => {
       try {
         const invites = new Map<string, string | undefined>();
-        for (const invite of await transport.listInvites()) {
+        for (const invite of await client.listInvites(transport)) {
           invites.set(invite.inviteId, invite.displayName);
         }
-        state.knownInvites.set(transport.type, invites);
+        state.knownInvites.set(transport, invites);
       } catch (error) {
         writeError(
-          `Could not list invites for ${transport.type}: ${String(error)}\n`,
+          `Could not list invites for ${transport}: ${String(error)}\n`,
         );
       }
     }),
   );
 }
 
-function registerManagerHandlers({
-  manager,
+function registerGatewayClientHandlers({
+  client,
   state,
   write,
   writeError,
   refreshPrompt,
 }: PromptRuntime): void {
-  manager.onMessage((message) => {
+  client.onEvent((event) => {
+    if (event.type === "admin_result") {
+      write(event.output);
+      if (event.ok && event.command !== "status") {
+        write("Transport configuration applied.\n");
+      }
+      refreshPrompt();
+      return;
+    }
+    if (event.type === "reaction") {
+      return;
+    }
+
+    const { message } = event;
     rememberTarget(state.knownTargets, message.transport, message.chatId);
     state.currentTarget ??= {
       transport: message.transport,
@@ -469,7 +486,7 @@ function registerManagerHandlers({
     );
     refreshPrompt();
   });
-  manager.onError((transport, error) => {
+  client.onError((transport, error) => {
     const matrixDecryptionError = asMatrixDecryptionError(error);
     if (matrixDecryptionError) {
       rememberTarget(
@@ -529,7 +546,7 @@ async function handleInputLine(
   }
 
   try {
-    await context.manager.handleCommand({
+    await context.client.send({
       type: "send_message",
       transport: context.state.currentTarget.transport,
       chatId: context.state.currentTarget.chatId,
@@ -591,54 +608,124 @@ async function runAdminSlashCommand(
   args: string[],
   context: ChatRuntime,
 ): Promise<void> {
-  if (!context.runAdminCommand || !context.reloadTransports) {
-    context.write("Transport configuration is not available in this chat.\n");
+  const gatewayCommand = adminSlashToGatewayCommand(command, args, context);
+  if (!gatewayCommand) {
     return;
   }
 
-  const output = writableFrom(context.write);
-  const errorOutput = writableFrom(context.writeError);
-  const exitCode = await context.runAdminCommand(
-    [command, ...args],
-    output,
-    errorOutput,
-  );
-
-  if (exitCode !== 0) {
-    return;
-  }
-
-  try {
-    await context.reloadTransports();
-  } catch (error) {
-    context.writeError(
-      `Transport configuration saved but could not be applied: ${String(error)}\n`,
-    );
-    return;
-  }
+  await context.client.send(gatewayCommand);
 
   if (
     context.state.currentTarget &&
-    !context.manager.transports.has(context.state.currentTarget.transport)
+    !context.client
+      .configuredTransports()
+      .has(context.state.currentTarget.transport)
   ) {
     context.state.currentTarget = undefined;
   }
-  await rememberListedChats(context.manager, context.state, context.writeError);
+  await rememberListedChats(context.client, context.state, context.writeError);
   await rememberListedInvites(
-    context.manager,
+    context.client,
     context.state,
     context.writeError,
   );
-  context.write("Transport configuration applied.\n");
 }
 
-function writableFrom(write: (message: string) => boolean): Writable {
-  return new Writable({
-    write(chunk, _encoding, callback) {
-      write(String(chunk));
-      callback();
-    },
-  });
+function adminSlashToGatewayCommand(
+  command: string,
+  args: string[],
+  context: ChatRuntime,
+): GatewayCommand | undefined {
+  if (command === "connect" || command === "disconnect") {
+    const [transport, extra] = args;
+    if (!isTransportName(transport) || extra) {
+      context.write(`Usage: /${command} <transport>\n`);
+      return undefined;
+    }
+    return {
+      type:
+        command === "connect" ? "connect_transport" : "disconnect_transport",
+      transport,
+    };
+  }
+
+  if (command === "configure") {
+    const [transport, ...flags] = args;
+    if (!isTransportName(transport)) {
+      context.write(
+        "Usage: /configure <transport> [--enable|--disable] [--set key=value]...\n",
+      );
+      return undefined;
+    }
+
+    const parsed = parseConfigureSlashFlags(flags, context);
+    if (!parsed) {
+      return undefined;
+    }
+
+    return {
+      type: "configure_transport",
+      transport,
+      ...(parsed.enabled === undefined ? {} : { enabled: parsed.enabled }),
+      ...(Object.keys(parsed.settings).length === 0
+        ? {}
+        : { settings: parsed.settings }),
+    };
+  }
+
+  return undefined;
+}
+
+function parseConfigureSlashFlags(
+  args: string[],
+  context: ChatRuntime,
+): { enabled?: boolean; settings: Record<string, unknown> } | undefined {
+  const settings: Record<string, unknown> = {};
+  let enabled: boolean | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--enable") {
+      enabled = true;
+      continue;
+    }
+    if (arg === "--disable") {
+      enabled = false;
+      continue;
+    }
+    const assignment =
+      arg === "--set"
+        ? args[++index]
+        : arg?.startsWith("--set=")
+          ? arg.slice("--set=".length)
+          : undefined;
+    if (assignment !== undefined) {
+      const separator = assignment.indexOf("=");
+      if (separator <= 0) {
+        context.write("Settings must use key=value\n");
+        return undefined;
+      }
+      settings[assignment.slice(0, separator)] = parseSettingValue(
+        assignment.slice(separator + 1),
+      );
+      continue;
+    }
+
+    context.write(`Unknown configure option: ${arg}\n`);
+    return undefined;
+  }
+
+  return { ...(enabled === undefined ? {} : { enabled }), settings };
+}
+
+function parseSettingValue(value: string): unknown {
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  return value;
 }
 
 async function acceptInvite(
@@ -652,12 +739,12 @@ async function acceptInvite(
     return;
   }
 
-  const transport = transportForInviteAction(target, context, "Accept");
-  if (!transport) {
+  try {
+    await context.client.acceptInvite(target.transport, target.chatId);
+  } catch (error) {
+    writeTransportActionError(error, target.transport, context);
     return;
   }
-
-  await transport.acceptInvite?.(target.chatId);
   context.state.knownInvites.get(target.transport)?.delete(target.chatId);
   rememberTarget(context.state.knownTargets, target.transport, target.chatId);
   context.state.currentTarget = target;
@@ -675,41 +762,30 @@ async function rejectInvite(
     return;
   }
 
-  const transport = transportForInviteAction(target, context, "Reject");
-  if (!transport) {
+  try {
+    await context.client.rejectInvite(target.transport, target.chatId, reason);
+  } catch (error) {
+    writeTransportActionError(error, target.transport, context);
     return;
   }
-
-  await transport.rejectInvite?.(target.chatId, reason);
   context.state.knownInvites.get(target.transport)?.delete(target.chatId);
   context.write(`Rejected ${target.transport} ${target.chatId}\n`);
 }
 
-function transportForInviteAction(
-  target: ChatTarget,
+function writeTransportActionError(
+  error: unknown,
+  transport: TransportName,
   context: ChatRuntime,
-  action: "Accept" | "Reject",
-): TransportProvider | undefined {
-  let transport: TransportProvider;
-  try {
-    transport = context.manager.getTransport(target.transport);
-  } catch (error) {
-    if (error instanceof UnknownTransportError) {
-      context.write(`Transport is not configured: ${error.transport}\n`);
-      return undefined;
-    }
-
-    throw error;
+): void {
+  if (error instanceof UnknownTransportError) {
+    context.write(`Transport is not configured: ${error.transport}\n`);
+    return;
   }
-
-  const method =
-    action === "Accept" ? transport.acceptInvite : transport.rejectInvite;
-  if (!method) {
-    context.write(`${action} invite is not supported by ${target.transport}\n`);
-    return undefined;
+  if (error instanceof Error) {
+    context.write(`${error.message}\n`);
+    return;
   }
-
-  return transport;
+  context.write(`Transport action failed for ${transport}: ${String(error)}\n`);
 }
 
 function setTarget(args: string[], context: ChatRuntime): void {
@@ -720,7 +796,7 @@ function setTarget(args: string[], context: ChatRuntime): void {
     return;
   }
 
-  if (!context.manager.transports.has(transport)) {
+  if (!context.client.configuredTransports().has(transport)) {
     context.write(`Transport is not configured: ${transport}\n`);
     return;
   }
@@ -741,24 +817,12 @@ async function leaveTarget(
     return;
   }
 
-  let transport: TransportProvider;
   try {
-    transport = context.manager.getTransport(target.transport);
+    await context.client.leaveChat(target.transport, target.chatId, reason);
   } catch (error) {
-    if (error instanceof UnknownTransportError) {
-      context.write(`Transport is not configured: ${error.transport}\n`);
-      return;
-    }
-
-    throw error;
-  }
-
-  if (!transport.leaveChat) {
-    context.write(`Leave is not supported by ${target.transport}\n`);
+    writeTransportActionError(error, target.transport, context);
     return;
   }
-
-  await transport.leaveChat(target.chatId, reason);
   if (sameTarget(context.state.currentTarget, target)) {
     context.state.currentTarget = undefined;
   }
@@ -832,7 +896,7 @@ function stripWrappingQuotes(value: string): string {
 function suggestionsFor(
   buffer: string,
   state: ChatState,
-  manager: TransportManager,
+  client: GatewayClient,
 ): Suggestion[] {
   if (!buffer.startsWith("/")) {
     return [];
@@ -852,7 +916,7 @@ function suggestionsFor(
   }
 
   if (command === "/target") {
-    return targetSuggestions(buffer, state, manager);
+    return targetSuggestions(buffer, state, client);
   }
 
   if (command === "/leave") {
@@ -869,14 +933,14 @@ function suggestionsFor(
 function targetSuggestions(
   buffer: string,
   state: ChatState,
-  manager: TransportManager,
+  client: GatewayClient,
 ): Suggestion[] {
   const args = commandArgs(buffer);
   const hasTrailingSpace = /\s$/.test(buffer);
   const [transport, chatIdPrefix = ""] = args;
 
   if (!transport || (args.length === 1 && !hasTrailingSpace)) {
-    return [...manager.transports.keys()]
+    return [...client.configuredTransports()]
       .filter((candidate) => candidate.startsWith(transport ?? ""))
       .map((candidate) => ({
         label: candidate,
@@ -1071,17 +1135,13 @@ function sameTarget(
 }
 
 async function writeStatus(context: ChatRuntime): Promise<void> {
+  await context.client.send({ type: "status" });
   await rememberListedInvites(
-    context.manager,
+    context.client,
     context.state,
     context.writeError,
   );
-  const transports = [...context.manager.transports.values()]
-    .map(
-      (transport) =>
-        `${transport.type}:${transport.isConnected ? "connected" : "disconnected"}`,
-    )
-    .join(", ");
+  const transports = [...context.client.configuredTransports()].join(", ");
   const target = context.state.currentTarget
     ? `${context.state.currentTarget.transport} ${context.state.currentTarget.chatId}`
     : "none";

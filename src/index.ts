@@ -1,5 +1,10 @@
 export { runChatCli, type RunChatCliOptions } from "./chat.js";
 export { runAdminCli, type RunAdminCliOptions } from "./admin.js";
+export {
+  ManagerGatewayClient,
+  type GatewayClient,
+  type GatewayEventHandler,
+} from "./gateway-client.js";
 export type {
   GatewayConfig,
   TransportConfig,

@@ -26,15 +26,12 @@ umg chat
 
 ## Current implementation
 
-The current implementation is a small in-process chat harness. It starts configured
-transports through the same manager as gateway, prints inbound messages, auto-selects the
-first inbound target, sends normal typed lines to the current target, auto-selects Matrix
-rooms with failed decryption so a bootstrap reply can be sent, and supports target,
-invite, leave, status, configure, connect, disconnect, and quit commands.
-
-This is transitional. The intended architecture is that chat becomes a wrapper over the
-gateway command/event protocol; see
-[ADR 0011](../decisions/0011-chat-is-a-wrapper-over-gateway-protocol.md).
+The current implementation is a small in-process chat client over a shared gateway client
+abstraction. It starts configured transports through the gateway client, prints inbound
+events, auto-selects the first inbound target, sends normal typed lines as gateway
+commands, auto-selects Matrix rooms with failed decryption so a bootstrap reply can be
+sent, and supports target, invite, leave, status, configure, connect, disconnect, and quit
+commands.
 
 ## Target shape
 
@@ -97,11 +94,10 @@ then exposed in chat.
 - A maintainer can run `umg chat`, receive a Matrix message, and type a normal text reply.
 - The cli displays enough target context to avoid accidentally sending to the wrong room.
 - The raw `umg gateway` JSON-lines mode exposes the same admin capabilities.
-- Chat-over-gateway remains the next refactor; see ADR 0011.
+- Chat and gateway share the same gateway client path for admin and message commands.
 
 ## Deferred
 
-- Implement chat through the gateway command/event protocol.
 - Full-screen TUI layout.
 - Persistent scrollback.
 - Message editing/reactions.

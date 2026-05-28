@@ -16,9 +16,8 @@ until a concrete process-lifetime problem appears.
 
 The public cli is now `umg chat` and `umg gateway`; top-level admin commands were removed.
 Admin operations run inside an attached session: chat slash commands or gateway JSON-lines
-admin commands. Chat currently shares lower-level internals with gateway, but the intended
-next refactor is to make chat a human-friendly wrapper over the gateway command/event
-protocol; see [ADR 0011](decisions/0011-chat-is-a-wrapper-over-gateway-protocol.md).
+admin commands. Chat is now a human-friendly wrapper over a shared gateway client path for
+message/admin commands; see [ADR 0011](decisions/0011-chat-is-a-wrapper-over-gateway-protocol.md).
 
 Last closeout verification passed locally:
 
