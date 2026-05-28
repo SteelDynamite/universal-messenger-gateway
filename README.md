@@ -15,8 +15,8 @@ standard I/O.
 - **gateway** — the portal a transport connects to on one side and a bot on the other.
   Owns the normalized envelope and all transport state (including the Matrix
   crypto/session store). Pure transport-layer — no bot logic.
-- **cli** — drives the gateway over its standard I/O with no bot attached, so it can be
-  run and tested in isolation.
+- **cli** — drives the gateway over its standard I/O with no bot attached. Its help is
+  designed for a minimal-context agent that was only told to use `umg` to communicate.
 
 It is the transport layer of the
 [pi-messenger-bridge](https://github.com/tintinweb/pi-messenger-bridge) extension,

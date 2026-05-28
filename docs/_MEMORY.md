@@ -9,11 +9,16 @@ None. Do not start Phase 2 until explicitly asked.
 ## Phase 1 closeout
 
 [Phase 1 — Standalone gateway + cli](features/phase-1-standalone-gateway-and-cli.md) is complete.
-The standalone stdio gateway, interactive chat cli, config-oriented admin cli, Matrix
-transport, Matrix E2EE support, explicit invite accept/reject, and live Matrix smoke runner
-exist. Daemon/socket runtime control is deferred by
-[ADR 0005](decisions/0005-use-stdio-json-lines-for-gateway-io.md) until a concrete
-process-lifetime problem appears.
+The standalone stdio gateway, interactive chat cli, Matrix transport, Matrix E2EE support,
+explicit invite accept/reject, and live Matrix smoke runner exist. Daemon/socket runtime
+control is deferred by [ADR 0005](decisions/0005-use-stdio-json-lines-for-gateway-io.md)
+until a concrete process-lifetime problem appears.
+
+The public cli is now `umg chat` and `umg gateway`; top-level admin commands were removed.
+Admin operations run inside an attached session: chat slash commands or gateway JSON-lines
+admin commands. Chat currently shares lower-level internals with gateway, but the intended
+next refactor is to make chat a human-friendly wrapper over the gateway command/event
+protocol; see [ADR 0011](decisions/0011-chat-is-a-wrapper-over-gateway-protocol.md).
 
 Last closeout verification passed locally:
 

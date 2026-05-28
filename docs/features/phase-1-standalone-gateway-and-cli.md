@@ -13,25 +13,36 @@ The standalone gateway and cli are complete for Phase 1, with no bot attached.
 - Lift the transport layer in from the source extension (see [Contributing](../CONTRIBUTING.md)).
 - Build the standard-I/O service shell around the transport manager: emit normalized
   inbound messages, accept "send message" / "send typing" commands.
-- Build the cli: connect over the standard I/O, render inbound, send outbound — exercise a
-  live transport with no bot.
+- Build the cli for a minimal-context agent: bare `umg` onboards the agent, lists commands
+  and transport status, and points to the shortest path from empty state to messaging.
 - Add an [interactive dev chat cli](interactive-dev-chat-cli.md) for manual live transport
   testing without hand-written JSON-lines.
 - Re-home the admin surface (connect / disconnect / configure / status) as cli
   subcommands; drop the interactive menu and widget.
 
-## Admin cli
+## Cli entrypoint
 
-The Phase 1 admin surface is config-oriented because there is no long-running daemon to
-control yet:
+Bare `umg` is help-like, exits successfully, and assumes the reader is an agent that only
+knows it should use this cli to communicate. It points to `chat` and `gateway` as the two
+public operating modes and lists all known transports with support status.
 
-- `umg status` prints the state directory, each known transport, whether it is enabled, and
-  configured setting names without printing secret values.
-- `umg configure <transport> [--enable|--disable] [--set key=value]...` updates
-  `state/config.json`.
-- `umg connect <transport>` enables the transport for future `umg gateway` or `umg chat`
-  runs.
-- `umg disconnect <transport>` disables the transport for future runs.
+`umg chat` and `umg gateway` expose the same transport control surface. When no transports
+are enabled, chat starts in configuration mode instead of claiming to be connected. Chat
+accepts `/configure`, `/connect`, and `/disconnect` with the same syntax as the top-level
+admin commands and reloads transports live after successful changes. Gateway accepts the
+same operations as JSON-lines admin commands and emits `admin_result` events.
+
+## Admin surface
+
+There are no top-level admin commands. Configuration and transport control happen inside
+an attached session:
+
+- `umg chat` accepts `/status`, `/configure`, `/connect`, and `/disconnect`.
+- `umg gateway` accepts equivalent JSON-lines admin commands and emits `admin_result`
+  events.
+
+The shared admin operations print the state directory, list known transports, update
+`state/config.json`, and reload transports live after successful changes.
 
 Longer-term chat-client behavior is tracked separately in the
 [client capability backlog](client-capability-backlog.md).
@@ -54,4 +65,6 @@ Related:
 [0006](../decisions/0006-compile-first-party-transports-together.md),
 [0007](../decisions/0007-use-repo-local-state-dir-for-phase-1.md),
 [0008](../decisions/0008-use-one-gateway-per-agent.md),
-[0009](../decisions/0009-use-matrix-bot-sdk-for-first-matrix-transport.md).
+[0009](../decisions/0009-use-matrix-bot-sdk-for-first-matrix-transport.md),
+[0010](../decisions/0010-design-cli-for-minimal-context-agents.md),
+[0011](../decisions/0011-chat-is-a-wrapper-over-gateway-protocol.md).

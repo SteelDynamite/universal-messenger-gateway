@@ -12,6 +12,47 @@ import {
   runChatCli,
 } from "../src/index.js";
 
+test("starts in configuration mode with no transports", async () => {
+  const manager = new TransportManager();
+  const output = collectOutput();
+
+  const exitCode = await runChatCli({
+    input: scriptedInput("/quit\n"),
+    output,
+    errorOutput: collectOutput(),
+    manager,
+  });
+
+  expect(exitCode).toBe(0);
+  expect(output.text()).toContain("No transports are enabled");
+});
+
+test("runs admin slash commands and reloads transports", async () => {
+  const manager = new TransportManager();
+  const output = collectOutput();
+  const matrix = new FakeTransport("matrix");
+
+  await runChatCli({
+    input: scriptedInput(
+      "/connect matrix\n/target matrix room\nhello\n/quit\n",
+    ),
+    output,
+    errorOutput: collectOutput(),
+    manager,
+    async runAdminCommand(args, commandOutput) {
+      commandOutput.write(`${args.join(" ")}\n`);
+      return 0;
+    },
+    async reloadTransports() {
+      await manager.replaceTransports([matrix]);
+      await manager.connectAll();
+    },
+  });
+
+  expect(output.text()).toContain("Transport configuration applied");
+  expect(matrix.sentMessages).toEqual([{ chatId: "room", text: "hello" }]);
+});
+
 test("sends typed lines to the selected target", async () => {
   const matrix = new FakeTransport("matrix");
   const manager = new TransportManager([matrix]);

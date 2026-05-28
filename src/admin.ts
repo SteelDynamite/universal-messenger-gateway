@@ -12,7 +12,6 @@ import {
 } from "./protocol.js";
 import { resolveStateDir } from "./state.js";
 import type { TransportRegistry } from "./transports/registry.js";
-import { defaultTransportRegistry } from "./transports/registry.js";
 
 export type RunAdminCliOptions = {
   args: string[];
@@ -34,14 +33,17 @@ export async function runAdminCli({
   errorOutput,
   env = process.env,
   cwd = process.cwd(),
-  registry = defaultTransportRegistry,
+  registry,
 }: RunAdminCliOptions): Promise<number> {
   const [command, ...commandArgs] = args;
   const stateDir = resolveStateDir(env, cwd);
 
   if (command === "status") {
     const config = await loadGatewayConfig(stateDir);
-    writeStatus(output, config, stateDir, registry);
+    const activeRegistry =
+      registry ??
+      (await import("./transports/registry.js")).defaultTransportRegistry;
+    writeStatus(output, config, stateDir, activeRegistry);
     return 0;
   }
 
@@ -264,13 +266,11 @@ function compactTransportConfig(config: TransportConfig): TransportConfig {
 
 function adminUsage(): string {
   return [
-    "Usage: umg <gateway|chat|status|configure|connect|disconnect>",
-    "",
     "Admin commands:",
-    "  umg status",
-    "  umg configure <transport> [--enable|--disable] [--set key=value]...",
-    "  umg connect <transport>",
-    "  umg disconnect <transport>",
+    "  status",
+    "  configure <transport> [--enable|--disable] [--set key=value]...",
+    "  connect <transport>",
+    "  disconnect <transport>",
     "",
   ].join("\n");
 }

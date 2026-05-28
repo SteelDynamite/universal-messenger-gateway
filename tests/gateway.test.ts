@@ -4,7 +4,7 @@ import { runGatewayStdio } from "../src/index.js";
 
 test("passes valid commands to the gateway handler", async () => {
   const input = Readable.from([
-    '{"type":"send_typing","transport":"matrix","chatId":"room"}\n{"type":"send_reaction","transport":"matrix","chatId":"room","messageId":"$event","reaction":"+1"}\n',
+    '{"type":"send_typing","transport":"matrix","chatId":"room"}\n{"type":"send_reaction","transport":"matrix","chatId":"room","messageId":"$event","reaction":"+1"}\n{"type":"status"}\n',
   ]);
   const errorOutput = sink();
   const commands = [];
@@ -27,6 +27,7 @@ test("passes valid commands to the gateway handler", async () => {
       messageId: "$event",
       reaction: "+1",
     },
+    { type: "status" },
   ]);
 });
 

@@ -1,12 +1,11 @@
 import { createInterface } from "node:readline/promises";
-import type { Readable, Writable } from "node:stream";
+import { type Readable, Writable } from "node:stream";
 import { type TransportName, isTransportName } from "./protocol.js";
 import type { TransportProvider } from "./transports/interface.js";
 import {
   type TransportManager,
   UnknownTransportError,
 } from "./transports/manager.js";
-import { MatrixDecryptionError } from "./transports/matrix.js";
 
 type ChatTarget = {
   transport: TransportName;
@@ -41,6 +40,9 @@ const SLASH_COMMANDS = [
   "/reject",
   "/leave",
   "/status",
+  "/configure",
+  "/connect",
+  "/disconnect",
   "/quit",
 ] as const;
 
@@ -49,6 +51,12 @@ export type RunChatCliOptions = {
   output: Writable;
   errorOutput: Writable;
   manager: TransportManager;
+  runAdminCommand?: (
+    args: string[],
+    output: Writable,
+    errorOutput: Writable,
+  ) => Promise<number>;
+  reloadTransports?: () => Promise<void>;
 };
 
 export async function runChatCli({
@@ -56,6 +64,8 @@ export async function runChatCli({
   output,
   errorOutput,
   manager,
+  runAdminCommand,
+  reloadTransports,
 }: RunChatCliOptions): Promise<number> {
   const state: ChatState = {
     currentTarget: undefined,
@@ -73,6 +83,8 @@ export async function runChatCli({
       state,
       write,
       writeError,
+      runAdminCommand,
+      reloadTransports,
     });
   }
 
@@ -83,6 +95,8 @@ export async function runChatCli({
     state,
     write,
     writeError,
+    runAdminCommand,
+    reloadTransports,
   });
 }
 
@@ -91,11 +105,49 @@ type ChatRuntime = {
   state: ChatState;
   write(message: string): boolean;
   writeError(message: string): boolean;
+  runAdminCommand:
+    | ((
+        args: string[],
+        output: Writable,
+        errorOutput: Writable,
+      ) => Promise<number>)
+    | undefined;
+  reloadTransports: (() => Promise<void>) | undefined;
 };
 
 type PromptRuntime = ChatRuntime & {
   refreshPrompt(): void;
 };
+
+async function startChatSession({
+  manager,
+  state,
+  write,
+  writeError,
+}: ChatRuntime): Promise<void> {
+  if (manager.transports.size === 0) {
+    write(noTransportsMessage());
+    return;
+  }
+
+  await manager.connectAll();
+  await rememberListedChats(manager, state, writeError);
+  await rememberListedInvites(manager, state, writeError);
+  write(
+    "Connected. Type a message, /target <transport> <chatId>, /accept, /reject, /leave, /status, /configure, /connect, /disconnect, or /quit.\n",
+  );
+}
+
+function noTransportsMessage(): string {
+  return [
+    "No transports are enabled.",
+    "",
+    "Start here:",
+    "  /status",
+    "  /configure matrix --enable --set homeserverUrl=https://matrix.example --set accessToken=...",
+    "",
+  ].join("\n");
+}
 
 async function runLineChat({
   input,
@@ -104,6 +156,8 @@ async function runLineChat({
   state,
   write,
   writeError,
+  runAdminCommand,
+  reloadTransports,
 }: ChatRuntime & { input: Readable; output: Writable }): Promise<number> {
   const readline = createInterface({ input, output, terminal: false });
   const refreshPrompt = () => {
@@ -111,13 +165,23 @@ async function runLineChat({
     readline.prompt();
   };
 
-  registerManagerHandlers({ manager, state, write, writeError, refreshPrompt });
-  await manager.connectAll();
-  await rememberListedChats(manager, state, writeError);
-  await rememberListedInvites(manager, state, writeError);
-  write(
-    "Connected. Type a message, /target <transport> <chatId>, /accept, /reject, /leave, /status, or /quit.\n",
-  );
+  registerManagerHandlers({
+    manager,
+    state,
+    write,
+    writeError,
+    runAdminCommand,
+    reloadTransports,
+    refreshPrompt,
+  });
+  await startChatSession({
+    manager,
+    state,
+    write,
+    writeError,
+    runAdminCommand,
+    reloadTransports,
+  });
   refreshPrompt();
 
   try {
@@ -127,6 +191,8 @@ async function runLineChat({
         state,
         write,
         writeError,
+        runAdminCommand,
+        reloadTransports,
       });
 
       if (shouldQuit) {
@@ -150,6 +216,8 @@ async function runInteractiveChat({
   state,
   write,
   writeError,
+  runAdminCommand,
+  reloadTransports,
 }: ChatRuntime & { input: TtyInput; output: TtyOutput }): Promise<number> {
   let buffer = "";
   let suggestions: Suggestion[] = [];
@@ -189,15 +257,19 @@ async function runInteractiveChat({
       return result;
     },
     writeError,
+    runAdminCommand,
+    reloadTransports,
     refreshPrompt: render,
   });
 
-  await manager.connectAll();
-  await rememberListedChats(manager, state, writeError);
-  await rememberListedInvites(manager, state, writeError);
-  write(
-    "Connected. Type a message, /target <transport> <chatId>, /accept, /reject, /leave, /status, or /quit.\n",
-  );
+  await startChatSession({
+    manager,
+    state,
+    write,
+    writeError,
+    runAdminCommand,
+    reloadTransports,
+  });
   input.setRawMode?.(true);
   input.resume();
   render();
@@ -228,6 +300,8 @@ async function runInteractiveChat({
             state,
             write,
             writeError,
+            runAdminCommand,
+            reloadTransports,
           });
           buffer = "";
 
@@ -396,11 +470,19 @@ function registerManagerHandlers({
     refreshPrompt();
   });
   manager.onError((transport, error) => {
-    if (error instanceof MatrixDecryptionError) {
-      rememberTarget(state.knownTargets, transport, error.roomId);
-      state.currentTarget ??= { transport, chatId: error.roomId };
+    const matrixDecryptionError = asMatrixDecryptionError(error);
+    if (matrixDecryptionError) {
+      rememberTarget(
+        state.knownTargets,
+        transport,
+        matrixDecryptionError.roomId,
+      );
+      state.currentTarget ??= {
+        transport,
+        chatId: matrixDecryptionError.roomId,
+      };
       write(
-        `\n[${transport} ${error.roomId}] encrypted event could not be decrypted; target selected so you can send a message to bootstrap room-key sharing.\n`,
+        `\n[${transport} ${matrixDecryptionError.roomId}] encrypted event could not be decrypted; target selected so you can send a message to bootstrap room-key sharing.\n`,
       );
       refreshPrompt();
       return;
@@ -408,6 +490,21 @@ function registerManagerHandlers({
 
     writeError(`Transport error from ${transport}: ${String(error)}\n`);
   });
+}
+
+function asMatrixDecryptionError(
+  error: unknown,
+): { roomId: string } | undefined {
+  if (
+    error instanceof Error &&
+    error.name === "MatrixDecryptionError" &&
+    "roomId" in error &&
+    typeof error.roomId === "string"
+  ) {
+    return { roomId: error.roomId };
+  }
+
+  return undefined;
 }
 
 async function handleInputLine(
@@ -476,12 +573,72 @@ async function handleSlashCommand(
     case "/leave":
       await leaveTarget(args, context);
       return false;
+    case "/configure":
+    case "/connect":
+    case "/disconnect":
+      await runAdminSlashCommand(command.slice(1), args, context);
+      return false;
     default:
       context.write(
-        "Unknown command. Available: /target, /accept, /reject, /leave, /status, /quit.\n",
+        "Unknown command. Available: /target, /accept, /reject, /leave, /status, /configure, /connect, /disconnect, /quit.\n",
       );
       return false;
   }
+}
+
+async function runAdminSlashCommand(
+  command: string,
+  args: string[],
+  context: ChatRuntime,
+): Promise<void> {
+  if (!context.runAdminCommand || !context.reloadTransports) {
+    context.write("Transport configuration is not available in this chat.\n");
+    return;
+  }
+
+  const output = writableFrom(context.write);
+  const errorOutput = writableFrom(context.writeError);
+  const exitCode = await context.runAdminCommand(
+    [command, ...args],
+    output,
+    errorOutput,
+  );
+
+  if (exitCode !== 0) {
+    return;
+  }
+
+  try {
+    await context.reloadTransports();
+  } catch (error) {
+    context.writeError(
+      `Transport configuration saved but could not be applied: ${String(error)}\n`,
+    );
+    return;
+  }
+
+  if (
+    context.state.currentTarget &&
+    !context.manager.transports.has(context.state.currentTarget.transport)
+  ) {
+    context.state.currentTarget = undefined;
+  }
+  await rememberListedChats(context.manager, context.state, context.writeError);
+  await rememberListedInvites(
+    context.manager,
+    context.state,
+    context.writeError,
+  );
+  context.write("Transport configuration applied.\n");
+}
+
+function writableFrom(write: (message: string) => boolean): Writable {
+  return new Writable({
+    write(chunk, _encoding, callback) {
+      write(String(chunk));
+      callback();
+    },
+  });
 }
 
 async function acceptInvite(

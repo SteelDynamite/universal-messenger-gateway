@@ -26,18 +26,21 @@ umg chat
 
 ## Current implementation
 
-The implementation is intentionally small: it starts configured transports, prints inbound
-messages, auto-selects the first inbound target, sends normal typed lines to the current
-target, auto-selects Matrix rooms with failed decryption so a bootstrap reply can be sent,
-and supports `/target`, `/accept`, `/reject`, `/leave`, `/status`, and `/quit`. In an
-interactive terminal, `/` opens command suggestions and `/target`, `/accept`, `/reject`,
-and `/leave` offer known targets or invites. Join-by-alias and typing toggle remain
-deferred.
+The current implementation is a small in-process chat harness. It starts configured
+transports through the same manager as gateway, prints inbound messages, auto-selects the
+first inbound target, sends normal typed lines to the current target, auto-selects Matrix
+rooms with failed decryption so a bootstrap reply can be sent, and supports target,
+invite, leave, status, configure, connect, disconnect, and quit commands.
 
-## Shape
+This is transitional. The intended architecture is that chat becomes a wrapper over the
+gateway command/event protocol; see
+[ADR 0011](../decisions/0011-chat-is-a-wrapper-over-gateway-protocol.md).
 
-- Load `state/config.json` and start configured transports in-process.
-- Print inbound messages as a feed.
+## Target shape
+
+- Start or embed the gateway engine through a gateway client abstraction.
+- Translate slash commands and normal text input into gateway commands.
+- Render gateway events as a human-readable feed.
 - Track recently seen `{ transport, chatId }` targets.
 - Auto-select the first inbound target if no target is set.
 - Send normal input text to the current target.
@@ -48,14 +51,15 @@ deferred.
 
 ## Slash Commands
 
+- `/status` — show state, transport status, current target, and pending invite counts.
+- `/configure <transport> [--enable|--disable] [--set key=value]...` — update transport config.
+- `/connect <transport>` — enable and connect a transport.
+- `/disconnect <transport>` — disable and disconnect a transport.
 - `/target <transport> <chatId>` — set outbound target.
 - `/leave [transport] [chatId]` — leave the current target, or the explicit target, where the
   transport supports it.
-- `/join <transport> <room>` — deferred; join a room by room ID or alias, where the
-  transport supports it.
-- `/accept <transport> <invite>` — accept a pending invite for a transport.
-- `/status` — show current target, connected transports, and pending invite counts.
-- `/typing` — deferred; toggle typing indicator for the current target while enabled.
+- `/accept <transport> <invite>` — accept a pending invite.
+- `/reject <transport> <invite> [reason]` — reject a pending invite.
 - `/quit` — disconnect and exit.
 
 No `/help` command is required if slash-command discovery works. Add one only if the
@@ -68,7 +72,8 @@ completion UI proves insufficient.
 - Enter accepts the highlighted suggestion.
 - Escape closes suggestions.
 - `/target` completion is staged: transport first, then known chat ID.
-- `/accept` completion is staged: transport first, then pending invites for that transport.
+- `/accept` and `/reject` completion is staged: transport first, then pending invites for
+  that transport.
 - Unknown chat IDs can still be typed manually.
 
 The first implementation may use a simple readline-style prompt with redraws. A full-screen
@@ -76,11 +81,8 @@ TUI is deferred.
 
 ## Typing Indicator
 
-Typing is stateful in the chat cli: `/typing` toggles whether the current target receives
-periodic typing notifications while the user is composing.
-
-One-shot typing pings are less useful interactively because many transports expire typing
-state quickly.
+Typing is deferred. When added, it should be represented in the gateway protocol first and
+then exposed in chat.
 
 ## Room Membership
 
@@ -92,15 +94,18 @@ state quickly.
 
 ## Result
 
-A maintainer can run `umg chat`, receive a Matrix message, and type a normal text reply.
-The cli displays target context, supports explicit Matrix invite accept/reject, and leaves
-raw `umg gateway` JSON-lines mode unchanged.
+- A maintainer can run `umg chat`, receive a Matrix message, and type a normal text reply.
+- The cli displays enough target context to avoid accidentally sending to the wrong room.
+- The raw `umg gateway` JSON-lines mode exposes the same admin capabilities.
+- Chat-over-gateway remains the next refactor; see ADR 0011.
 
 ## Deferred
 
+- Implement chat through the gateway command/event protocol.
 - Full-screen TUI layout.
 - Persistent scrollback.
 - Message editing/reactions.
 - Multi-pane target switching.
+- Child-process gateway mode.
 - Auth/routing policy.
 - Rich profile and media features; see [client capability backlog](client-capability-backlog.md).

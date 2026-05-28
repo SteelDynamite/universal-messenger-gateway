@@ -74,18 +74,31 @@ export class TransportManager {
     );
   }
 
-  async handleCommand(command: GatewayCommand): Promise<void> {
-    const transport = this.getTransport(command.transport);
+  async replaceTransports(
+    transports: Iterable<TransportProvider>,
+  ): Promise<void> {
+    const nextTransports = [...transports];
+    await this.disconnectAll();
+    this.transports.clear();
 
+    for (const transport of nextTransports) {
+      this.addTransport(transport);
+    }
+  }
+
+  async handleCommand(command: GatewayCommand): Promise<void> {
     switch (command.type) {
-      case "send_message":
+      case "send_message": {
+        const transport = this.getTransport(command.transport);
         await transport.sendMessage(
           command.chatId,
           command.text,
           command.replyTo,
         );
         break;
-      case "send_reaction":
+      }
+      case "send_reaction": {
+        const transport = this.getTransport(command.transport);
         if (!transport.sendReaction) {
           throw new Error(
             `Transport does not support reactions: ${transport.type}`,
@@ -97,9 +110,12 @@ export class TransportManager {
           command.reaction,
         );
         break;
-      case "send_typing":
+      }
+      case "send_typing": {
+        const transport = this.getTransport(command.transport);
         await transport.sendTyping(command.chatId);
         break;
+      }
     }
   }
 

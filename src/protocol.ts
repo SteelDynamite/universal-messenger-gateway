@@ -65,10 +65,35 @@ export type SendTypingCommand = {
   chatId: string;
 };
 
+export type StatusCommand = {
+  type: "status";
+};
+
+export type ConfigureTransportCommand = {
+  type: "configure_transport";
+  transport: TransportName;
+  enabled?: boolean;
+  settings?: Record<string, unknown>;
+};
+
+export type ConnectTransportCommand = {
+  type: "connect_transport";
+  transport: TransportName;
+};
+
+export type DisconnectTransportCommand = {
+  type: "disconnect_transport";
+  transport: TransportName;
+};
+
 export type GatewayCommand =
   | SendMessageCommand
   | SendReactionCommand
-  | SendTypingCommand;
+  | SendTypingCommand
+  | StatusCommand
+  | ConfigureTransportCommand
+  | ConnectTransportCommand
+  | DisconnectTransportCommand;
 
 export type GatewayEvent =
   | {
@@ -78,6 +103,12 @@ export type GatewayEvent =
   | {
       type: "reaction";
       reaction: InboundReaction;
+    }
+  | {
+      type: "admin_result";
+      command: GatewayCommand["type"];
+      ok: boolean;
+      output: string;
     };
 
 export function isGatewayCommand(value: unknown): value is GatewayCommand {
@@ -106,6 +137,25 @@ export function isGatewayCommand(value: unknown): value is GatewayCommand {
       typeof value.reaction === "string" &&
       value.reaction.length > 0
     );
+  }
+
+  if (value.type === "status") {
+    return true;
+  }
+
+  if (value.type === "configure_transport") {
+    return (
+      isTransportName(value.transport) &&
+      (value.enabled === undefined || typeof value.enabled === "boolean") &&
+      (value.settings === undefined || isRecord(value.settings))
+    );
+  }
+
+  if (
+    value.type === "connect_transport" ||
+    value.type === "disconnect_transport"
+  ) {
+    return isTransportName(value.transport);
   }
 
   return false;

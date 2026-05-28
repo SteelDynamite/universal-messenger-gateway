@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import type { GatewayCommand, GatewayEvent } from "../src/index.js";
+import { isGatewayCommand } from "../src/index.js";
 
 test("models inbound message events", () => {
   const event = {
@@ -48,6 +49,33 @@ test("models outbound gateway commands", () => {
   ] satisfies GatewayCommand[];
 
   expect(commands).toHaveLength(3);
+});
+
+test("models gateway admin commands", () => {
+  const commands = [
+    { type: "status" },
+    {
+      type: "configure_transport",
+      transport: "matrix",
+      enabled: true,
+      settings: { homeserverUrl: "https://matrix.example" },
+    },
+    { type: "connect_transport", transport: "matrix" },
+    { type: "disconnect_transport", transport: "matrix" },
+  ] satisfies GatewayCommand[];
+
+  expect(commands.every(isGatewayCommand)).toBe(true);
+});
+
+test("models gateway admin result events", () => {
+  const event = {
+    type: "admin_result",
+    command: "configure_transport",
+    ok: true,
+    output: "Configured matrix\n",
+  } satisfies GatewayEvent;
+
+  expect(event.ok).toBe(true);
 });
 
 test("models inbound reaction events", () => {
