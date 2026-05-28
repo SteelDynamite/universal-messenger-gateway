@@ -14,10 +14,10 @@ The whole system is `cli > gateway > transport`:
 - a consumer (the **cli** in development, an **orchestrator** in production) drives the
   standard I/O.
 
-The standard I/O is newline-delimited JSON over stdin/stdout for Phase 1. Daemon/socket
-behavior is deferred until a concrete process-lifetime problem exists.
+The standard I/O is newline-delimited JSON over stdin/stdout. Daemon/socket behavior is
+deferred until a concrete process-lifetime problem exists.
 
-Phase 1 runtime state defaults to `./state` and can be overridden with
+Runtime state defaults to `./state` and can be overridden with
 `UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR`. The intended shape is one gateway per agent.
 Transport config loads from `state/config.json`.
 Matrix uses `state/matrix-store.json` and `state/matrix-crypto/` for SDK and E2EE state.
@@ -28,9 +28,10 @@ The standard I/O contract is the actual product — pin it before adding feature
 ## Origin
 
 This is the transport layer of the
-[pi-messenger-bridge](https://github.com/tintinweb/pi-messenger-bridge) extension, lifted
-into a standalone, bot-agnostic project. That transport layer was already free of bot
-coupling; the refactor formalizes the seam.
+[pi-messenger-bridge](https://github.com/SteelDynamite/pi-messenger-bridge) fork, lifted
+into a standalone, bot-agnostic project. Use that fork, not upstream, when lifting more
+transport code; it carries the Matrix cross-signing patches. That transport layer was
+already free of bot coupling; the refactor formalizes the seam.
 
 What carries over from the extension:
 
@@ -46,9 +47,10 @@ What carries over from the extension:
 
 - `src/protocol.ts` — standard gateway event and command envelope.
 - `src/config.ts` — `state/config.json` loading and validation.
-- `src/cli.ts` — cli entrypoint; currently a placeholder until the I/O mechanism is set.
-- `src/transports/` — transport interface, manager, and compiled first-party adapters as
-  they are lifted.
+- `src/cli.ts` — cli entrypoint for `gateway`, `chat`, `status`, `configure`, `connect`,
+  and `disconnect`.
+- `src/transports/` — transport interface, manager, registry, Matrix adapter, and Matrix
+  E2EE helpers. Other first-party adapters remain to be lifted.
 
 ## Where to look next
 

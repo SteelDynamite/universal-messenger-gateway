@@ -17,7 +17,7 @@ prevents stale crypto stores from one account being reused with another account'
 Use the gitignored local env file when it exists:
 
 ```sh
-set -a && source state/matrix-smoke.env && set +a && UMG_MATRIX_SMOKE=1 bun run test:matrix-smoke
+set -a && source state/matrix-smoke.env && set +a && UMG_MATRIX_SMOKE=1 npm run test:matrix-smoke
 ```
 
 Or export the variables directly:
@@ -28,7 +28,7 @@ UMG_MATRIX_HOMESERVER_URL=https://matrix.example \
 UMG_MATRIX_A_ACCESS_TOKEN=... \
 UMG_MATRIX_B_ACCESS_TOKEN=... \
 UMG_MATRIX_C_ACCESS_TOKEN=... \
-bun run test:matrix-smoke
+npm run test:matrix-smoke
 ```
 
 Optional variables:

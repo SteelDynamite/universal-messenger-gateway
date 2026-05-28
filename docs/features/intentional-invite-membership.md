@@ -1,7 +1,7 @@
 ---
 parent: "[[interactive-dev-chat-cli]]"
 tags:
-  - status/done
+  - status/complete
 ---
 
 # Intentional Invite Membership

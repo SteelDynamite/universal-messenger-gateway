@@ -20,8 +20,8 @@ Create `state/config.json`:
 Run the interactive chat harness:
 
 ```bash
-bun run build
-bun dist/cli.js chat
+npm run build
+node dist/cli.js chat
 ```
 
 Matrix state is written under `./state` by default:
@@ -67,8 +67,8 @@ For an encrypted DM invite smoke test:
 The raw gateway mode still exists for JSON-lines testing:
 
 ```bash
-bun run build
-bun dist/cli.js gateway
+npm run build
+node dist/cli.js gateway
 ```
 
 It emits inbound messages as JSON-lines on stdout and reads `send_message` / `send_typing`

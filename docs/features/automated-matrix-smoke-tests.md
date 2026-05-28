@@ -1,7 +1,7 @@
 ---
 parent: "[[phase-1-standalone-gateway-and-cli]]"
 tags:
-  - status/planned
+  - status/complete
 ---
 
 # Automated Matrix Smoke Tests
@@ -41,15 +41,10 @@ multi-account smoke test should catch these regressions before they reach manual
 12. Accounts A, B, and C verify encrypted group mention normalization.
 13. Account B leaves with a reason.
 
-## Open Design Points
-
-- How to provision smoke accounts/tokens safely.
-- How much Matrix state to reuse versus recreate per run.
-
 ## Current Runner
 
 The smoke test lives in `tests/matrix-smoke.test.ts` and runs through Vitest with
-`bun run test:matrix-smoke`. It is skipped unless `UMG_MATRIX_SMOKE=1` is set. It covers
+`npm run test:matrix-smoke`. It is skipped unless `UMG_MATRIX_SMOKE=1` is set. It covers
 explicit invite metadata, invite accept/reject, encrypted A-to-B/B-to-A round trips, reply
 context, reaction events, gateway JSON-lines command/event flow, typing command dispatch,
 formatted unencrypted Matrix message bodies, encrypted group mention normalization, explicit
@@ -57,9 +52,8 @@ leave, process-exit shutdown, absence of transport errors, and the config-orient
 `configure`/`connect`/`disconnect`/`status` flow. See
 [Matrix smoke tests](../runbooks/matrix-smoke-tests.md) for required environment variables.
 
-## Done When
+## Result
 
-- A maintainer can run one command and verify encrypted Matrix round-trip behavior between
-  two accounts.
-- The test fails clearly on missing room keys, invite handling regressions, missing reply
-  context, missing reactions, or shutdown failures.
+A maintainer can run one command and verify encrypted Matrix round-trip behavior. The test
+fails clearly on missing room keys, invite handling regressions, missing reply context,
+missing reactions, or shutdown failures.

@@ -10,9 +10,9 @@ Before running checks, decide whether the change needs additional local tests. A
 Run local checks:
 
 ```sh
-bun run typecheck
-bun run lint
-bun run test
+npm run typecheck
+npm run lint
+npm test
 ```
 
 Before running live smoke, decide whether Matrix smoke coverage should expand for new transport, protocol, or live Matrix behavior. Update it first when needed.
@@ -20,7 +20,7 @@ Before running live smoke, decide whether Matrix smoke coverage should expand fo
 Then run the live Matrix smoke test when `state/matrix-smoke.env` exists:
 
 ```sh
-set -a && source state/matrix-smoke.env && set +a && UMG_MATRIX_SMOKE=1 bun run test:matrix-smoke
+set -a && source state/matrix-smoke.env && set +a && UMG_MATRIX_SMOKE=1 npm run test:matrix-smoke
 ```
 
 ## Document

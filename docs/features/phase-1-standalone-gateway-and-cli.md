@@ -1,12 +1,12 @@
 ---
 parent: "[[universal-messenger-gateway]]"
 tags:
-  - status/in-progress
+  - status/complete
 ---
 
 # Phase 1 — Standalone gateway + cli
 
-Stand up the gateway as a standalone service driven by a cli, with no bot attached.
+The standalone gateway and cli are complete for Phase 1, with no bot attached.
 
 ## Scope
 
@@ -36,14 +36,15 @@ control yet:
 Longer-term chat-client behavior is tracked separately in the
 [client capability backlog](client-capability-backlog.md).
 
-## Open decisions
+## Runtime control
 
-None.
+Daemon/socket behavior remains deferred. Stdio JSON-lines is enough until a concrete
+process-lifetime problem appears.
 
-## Done when
+## Result
 
-The cli round-trips a real message on at least one transport — inbound rendered, outbound
-delivered, encryption intact where the platform has it — with no bot involved.
+The cli round-trips real encrypted Matrix messages with no bot involved. The live Matrix
+smoke test covers the gateway JSON-lines command/event path and the admin cli flow.
 
 Related: 
 [0001](../decisions/0001-extract-transport-layer-as-a-standalone-gateway.md),

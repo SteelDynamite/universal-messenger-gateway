@@ -24,8 +24,9 @@ refactored into a standalone project.
 
 ## Status
 
-Early — scaffolding. No published release yet. See [`docs/`](docs/) for scope and the
-current phase.
+Phase 1 is complete: the standalone gateway, cli, admin commands, interactive chat harness,
+and live Matrix smoke coverage exist. No published release yet. See [`docs/`](docs/) for
+scope and the next phase.
 
 ## Documentation
 

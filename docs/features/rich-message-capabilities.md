@@ -1,7 +1,7 @@
 ---
 parent: "[[client-capability-backlog]]"
 tags:
-  - status/planned
+  - status/backlog
 ---
 
 # Rich Message Capabilities

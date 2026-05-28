@@ -1,7 +1,7 @@
 ---
 parent: "[[phase-1-standalone-gateway-and-cli]]"
 tags:
-  - status/planned
+  - status/complete
 ---
 
 # Interactive dev chat cli
@@ -26,12 +26,13 @@ umg chat
 
 ## Current implementation
 
-The first implementation is intentionally small: it starts configured transports,
-prints inbound messages, auto-selects the first inbound target, sends normal typed
-lines to the current target, auto-selects Matrix rooms with failed decryption so a
-bootstrap reply can be sent, and supports `/target`, `/leave`, `/status`, and `/quit`.
-In an interactive terminal, `/` opens command suggestions and `/target` / `/leave` offer
-known targets. Joins, invites, and typing toggle are still pending.
+The implementation is intentionally small: it starts configured transports, prints inbound
+messages, auto-selects the first inbound target, sends normal typed lines to the current
+target, auto-selects Matrix rooms with failed decryption so a bootstrap reply can be sent,
+and supports `/target`, `/accept`, `/reject`, `/leave`, `/status`, and `/quit`. In an
+interactive terminal, `/` opens command suggestions and `/target`, `/accept`, `/reject`,
+and `/leave` offer known targets or invites. Join-by-alias and typing toggle remain
+deferred.
 
 ## Shape
 
@@ -50,11 +51,11 @@ known targets. Joins, invites, and typing toggle are still pending.
 - `/target <transport> <chatId>` — set outbound target.
 - `/leave [transport] [chatId]` — leave the current target, or the explicit target, where the
   transport supports it.
-- `/join <transport> <room>` — join a room by room ID or alias, where the transport
-  supports it.
-- `/accept <transport>` — select and accept a pending invite for a transport.
+- `/join <transport> <room>` — deferred; join a room by room ID or alias, where the
+  transport supports it.
+- `/accept <transport> <invite>` — accept a pending invite for a transport.
 - `/status` — show current target, connected transports, and pending invite counts.
-- `/typing` — toggle typing indicator for the current target while enabled.
+- `/typing` — deferred; toggle typing indicator for the current target while enabled.
 - `/quit` — disconnect and exit.
 
 No `/help` command is required if slash-command discovery works. Add one only if the
@@ -83,22 +84,17 @@ state quickly.
 
 ## Room Membership
 
-- Matrix auto-joins invites at the SDK layer today; replace this with
-  [intentional invite membership](intentional-invite-membership.md).
-- The chat cli should still surface joins and invites explicitly so testing is visible.
+- Matrix does not autojoin; see [intentional invite membership](intentional-invite-membership.md).
+- The chat cli surfaces invites explicitly so testing is visible.
 - `/status` shows pending invite counts across transports.
-- `/accept <transport>` shows the selectable invite list for one transport.
-- `/accept` with no transport can show transports that currently have invites.
-- `/accept` and `/join` are transport capabilities: unsupported transports should report a
-  clear "not supported" message.
-- Joining by Matrix room alias is useful for manual tests; joining by room ID is enough for
-  the first implementation if alias resolution is not already available.
+- `/accept` and `/reject` complete pending invites.
+- `/join` is deferred.
 
-## Done When
+## Result
 
-- A maintainer can run `umg chat`, receive a Matrix message, and type a normal text reply.
-- The cli displays enough target context to avoid accidentally sending to the wrong room.
-- The raw `umg gateway` JSON-lines mode still works unchanged.
+A maintainer can run `umg chat`, receive a Matrix message, and type a normal text reply.
+The cli displays target context, supports explicit Matrix invite accept/reject, and leaves
+raw `umg gateway` JSON-lines mode unchanged.
 
 ## Deferred
 

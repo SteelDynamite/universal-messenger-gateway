@@ -4,8 +4,8 @@ Roadmap dashboard. Phases are flat notes in this folder; status via tags.
 
 ## Phases
 
-- [Phase 1 — Standalone gateway + cli](phase-1-standalone-gateway-and-cli.md) — active
-- [Phase 2 — Connect an agent](phase-2-connect-an-agent.md) — backlog
+- [Phase 1 — Standalone gateway + cli](phase-1-standalone-gateway-and-cli.md) — complete
+- [Phase 2 — Connect an agent](phase-2-connect-an-agent.md) — next
 
 ## Status
 
