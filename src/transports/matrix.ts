@@ -150,6 +150,7 @@ export class MatrixProvider implements TransportProvider {
 
     this.#botUserId = await this.#client.getUserId();
     this.#connectedAt = Date.now();
+    this.installRoomKeyDiagnostics();
 
     this.#client.on("room.join", (roomId: string) => {
       this.#joinedRooms.add(roomId);
@@ -357,6 +358,54 @@ export class MatrixProvider implements TransportProvider {
 
   onError(handler: (error: unknown) => void): void {
     this.#errorHandler = handler;
+  }
+
+  private installRoomKeyDiagnostics(): void {
+    if (process.env.UMG_MATRIX_DEBUG_ROOM_KEYS !== "1" || !this.#client) {
+      return;
+    }
+
+    const client = this.#client as MatrixClient & {
+      sendToDevices(
+        type: string,
+        messages: Record<string, Record<string, unknown>>,
+      ): Promise<void>;
+    };
+    const requestClient = client as MatrixClient & {
+      doRequest(
+        method: string,
+        path: string,
+        ...args: unknown[]
+      ): Promise<unknown>;
+    };
+    const originalDoRequest = requestClient.doRequest.bind(requestClient);
+    requestClient.doRequest = async (method, path, ...args) => {
+      const response = await originalDoRequest(method, path, ...args);
+      if (method === "GET" && path.includes("/sync")) {
+        process.stderr.write(
+          `[Matrix room-key debug] ${this.#botUserId ?? "unknown"} sync ${summarizeSyncToDevice(response)}\n`,
+        );
+      }
+      return response;
+    };
+
+    const originalSendToDevices = client.sendToDevices.bind(client);
+    client.sendToDevices = async (type, messages) => {
+      process.stderr.write(
+        `[Matrix room-key debug] ${this.#botUserId ?? "unknown"} sending to-device ${type} to ${summarizeToDeviceRecipients(messages)}\n`,
+      );
+      const result = await originalSendToDevices(type, messages);
+      process.stderr.write(
+        `[Matrix room-key debug] ${this.#botUserId ?? "unknown"} sent to-device ${type}\n`,
+      );
+      return result;
+    };
+
+    client.on("to_device.decrypted", (event: unknown) => {
+      process.stderr.write(
+        `[Matrix room-key debug] ${this.#botUserId ?? "unknown"} received decrypted to-device ${summarizeToDeviceEvent(event)}\n`,
+      );
+    });
   }
 
   private async selfCrossSign(): Promise<void> {
@@ -627,6 +676,111 @@ export function parseMatrixConfig(
       ? { recoveryKey: settings.recoveryKey }
       : {}),
   };
+}
+
+function summarizeSyncToDevice(response: unknown): string {
+  if (!isRecord(response)) {
+    return "to-device:none";
+  }
+  const toDevice = recordField(response, "to_device");
+  const events = toDevice?.events;
+  if (!Array.isArray(events)) {
+    return "to-device:none";
+  }
+  return summarizeRawToDeviceEvents(events);
+}
+
+function summarizeRawToDeviceEvents(events: unknown[]): string {
+  if (events.length === 0) {
+    return "to-device:0";
+  }
+  return `to-device:${events.length} ${events
+    .map((event) => {
+      if (!isRecord(event)) {
+        return typeof event;
+      }
+      return `${stringField(event, "type") ?? "unknown"} from:${stringField(event, "sender") ?? "unknown"}`;
+    })
+    .join(", ")}`;
+}
+
+function summarizeToDeviceRecipients(
+  messages: Record<string, Record<string, unknown>>,
+): string {
+  return Object.entries(messages)
+    .map(([userId, devices]) => `${userId}:${Object.keys(devices).join("|")}`)
+    .join(", ");
+}
+
+function summarizeToDeviceEvent(event: unknown): string {
+  if (Array.isArray(event)) {
+    return `array length:${event.length} items:${event.map((item) => (isRecord(item) ? summarizeToDeviceRecord(item) : summarizeUnknownShape(item))).join(",")}`;
+  }
+  if (!isRecord(event)) {
+    return summarizeUnknownShape(event);
+  }
+
+  return summarizeToDeviceRecord(event);
+}
+
+function summarizeToDeviceRecord(event: Record<string, unknown>): string {
+  const type =
+    stringField(event, "type") ?? stringField(event, "event_type") ?? "unknown";
+  const content =
+    recordField(event, "content") ?? recordField(event, "decrypted") ?? event;
+  const roomId = stringField(content, "room_id") ?? "";
+  const algorithm = stringField(content, "algorithm") ?? "";
+  const sessionId = stringField(content, "session_id")
+    ? "session_id:present"
+    : "";
+  const code = stringField(content, "code")
+    ? `code:${stringField(content, "code")}`
+    : "";
+  const reason = stringField(content, "reason")
+    ? `reason:${stringField(content, "reason")}`
+    : "";
+  const keys = Object.keys(event).join("|");
+  const contentKeys = isRecord(content) ? Object.keys(content).join("|") : "";
+  return [
+    type,
+    roomId,
+    algorithm,
+    sessionId,
+    code,
+    reason,
+    `keys:${keys}`,
+    `content:${contentKeys}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function stringField(
+  value: Record<string, unknown>,
+  field: string,
+): string | undefined {
+  return typeof value[field] === "string" ? value[field] : undefined;
+}
+
+function recordField(
+  value: Record<string, unknown>,
+  field: string,
+): Record<string, unknown> | undefined {
+  return isRecord(value[field]) ? value[field] : undefined;
+}
+
+function summarizeUnknownShape(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `array:${value.length}`;
+  }
+  if (isRecord(value)) {
+    return `object:${Object.keys(value).join("|")}`;
+  }
+  return typeof value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function createSyncFilterLogger(defaultLogger: ILogger): ILogger {

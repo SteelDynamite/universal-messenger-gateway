@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
-import { MatrixClient } from "matrix-bot-sdk";
+import { MatrixAuth, MatrixClient } from "matrix-bot-sdk";
 import { afterEach, expect, test } from "vitest";
 import type {
   GatewayEvent,
@@ -10,6 +10,7 @@ import type {
   TransportProvider,
 } from "../src/index.js";
 import {
+  MatrixDecryptionError,
   MatrixProvider,
   TransportManager,
   createConfiguredTransports,
@@ -40,6 +41,12 @@ type SmokeParticipant = {
   messages: InboundMessage[];
   reactions: InboundReaction[];
   errors: unknown[];
+};
+
+type LoggedInSmokeAccount = {
+  account: SmokeAccount;
+  stateName: string;
+  userId: string;
 };
 
 const config = matrixSmokeConfig();
@@ -83,10 +90,10 @@ runMatrixSmoke(
       return;
     }
 
-    const controlClient = new MatrixClient(
+    const accountAUserId = await new MatrixClient(
       config.homeserverUrl,
       config.accountA.accessToken,
-    );
+    ).getUserId();
     const accountBUserId = await new MatrixClient(
       config.homeserverUrl,
       config.accountB.accessToken,
@@ -95,23 +102,47 @@ runMatrixSmoke(
       config.homeserverUrl,
       config.accountC.accessToken,
     ).getUserId();
-    const accountAUserId = await controlClient.getUserId();
     const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-    const accountA = await connectAdminConfiguredParticipant(
+    const loggedInA = await loginSmokeAccount(
       config.accountA,
       config,
-      stateName("a", accountAUserId),
+      "a",
+      accountAUserId,
+      runId,
     );
-    const accountB = await connectParticipant(
+    const loggedInB = await loginSmokeAccount(
       config.accountB,
       config,
-      stateName("b", accountBUserId),
+      "b",
+      accountBUserId,
+      runId,
     );
-    const accountC = await connectParticipant(
+    const loggedInC = await loginSmokeAccount(
       config.accountC,
       config,
-      stateName("c", accountCUserId),
+      "c",
+      accountCUserId,
+      runId,
+    );
+    const controlClient = new MatrixClient(
+      config.homeserverUrl,
+      loggedInA.account.accessToken,
+    );
+
+    const accountA = await connectAdminConfiguredParticipant(
+      loggedInA.account,
+      config,
+      loggedInA.stateName,
+    );
+    const accountB = await connectParticipant(
+      loggedInB.account,
+      config,
+      loggedInB.stateName,
+    );
+    const accountC = await connectParticipant(
+      loggedInC.account,
+      config,
+      loggedInC.stateName,
     );
 
     const roomId = await controlClient.createRoom({
@@ -378,6 +409,33 @@ runMatrixSmoke(
   },
 );
 
+async function loginSmokeAccount(
+  account: SmokeAccount,
+  config: SmokeConfig,
+  label: string,
+  userId: string,
+  runId: string,
+): Promise<LoggedInSmokeAccount> {
+  if (!account.accountPassword) {
+    return { account, stateName: stateName(label, userId), userId };
+  }
+
+  const client = await new MatrixAuth(config.homeserverUrl).passwordLogin(
+    userId,
+    account.accountPassword,
+    `umg-smoke-${runId}`,
+  );
+  const whoami = await client.getWhoAmI();
+  return {
+    account: {
+      ...account,
+      accessToken: client.accessToken,
+    },
+    stateName: stateName(label, `${userId}-${whoami.device_id ?? runId}`),
+    userId,
+  };
+}
+
 async function connectParticipant(
   account: SmokeAccount,
   config: SmokeConfig,
@@ -598,10 +656,18 @@ function expectNoUnexpectedErrors(participant: SmokeParticipant): void {
 }
 
 function isUnexpectedSmokeError(error: unknown): boolean {
-  return !(
+  if (
     error instanceof Error &&
     error.message.startsWith("Matrix cross-sign skipped:")
-  );
+  ) {
+    return false;
+  }
+
+  if (error instanceof MatrixDecryptionError) {
+    return roomsToLeave.includes(error.roomId);
+  }
+
+  return true;
 }
 
 async function waitFor<T>(
