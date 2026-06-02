@@ -188,7 +188,14 @@ async function runLineChat({
   reloadTransports,
 }: ChatRuntime & { input: Readable; output: Writable }): Promise<number> {
   const readline = createInterface({ input, output, terminal: false });
+  let readlineClosed = false;
+  readline.once("close", () => {
+    readlineClosed = true;
+  });
   const refreshPrompt = () => {
+    if (readlineClosed) {
+      return;
+    }
     readline.setPrompt(`${formatPromptTarget(state.currentTarget)} > `);
     readline.prompt();
   };
@@ -323,6 +330,9 @@ async function runInteractiveChat({
           }
 
           clearRenderedPrompt();
+          if (buffer.trim()) {
+            output.write("\n");
+          }
           const shouldQuit = await handleInputLine(buffer, {
             client,
             state,
@@ -1234,7 +1244,9 @@ function previousWordStart(value: string, cursorIndex: number): number {
 }
 
 function clearPrompt(output: Writable, renderedLineCount: number): void {
+  void renderedLineCount;
   output.write("\r");
+  output.write("\x1b[2K");
   output.write("\x1b[J");
 }
 

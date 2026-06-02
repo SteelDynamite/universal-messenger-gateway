@@ -478,6 +478,7 @@ export class MatrixProvider implements TransportProvider {
     }
 
     const details: string[] = [];
+    const warnings: string[] = [];
     const problems: string[] = [];
     if (!cryptoProvider) {
       problems.push("crypto store was not created");
@@ -546,24 +547,30 @@ export class MatrixProvider implements TransportProvider {
             `key backup: ${backupEnabled ? "active" : "not active"}`,
           );
           if (!backupEnabled) {
-            problems.push(
+            warnings.push(
               "key backup is not active in the local crypto machine",
             );
           }
         } catch (error) {
-          problems.push(`key backup status unavailable: ${String(error)}`);
+          warnings.push(`key backup status unavailable: ${String(error)}`);
         }
       } else {
-        details.push("key backup: status API unavailable");
+        warnings.push("key backup status API unavailable");
       }
     }
 
     return {
       category: "matrix-e2ee",
       status: problems.length === 0 ? "ready" : "degraded",
-      summary: problems.length === 0 ? "ready" : `degraded: ${problems[0]}`,
+      summary:
+        problems.length === 0
+          ? warnings.length === 0
+            ? "ready"
+            : `ready; warning: ${warnings[0]}`
+          : `degraded: ${problems[0]}`,
       details: [
         ...details,
+        ...warnings.map((warning) => `warning: ${warning}`),
         ...problems.map((problem) => `problem: ${problem}`),
       ],
     };
