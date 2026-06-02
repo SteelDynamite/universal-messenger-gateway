@@ -10,7 +10,11 @@ import {
   cliTransportRegistry,
   createConfiguredTransportList,
 } from "./runtime.js";
-import type { TransportChat, TransportInvite } from "./transports/interface.js";
+import type {
+  TransportChat,
+  TransportHealth,
+  TransportInvite,
+} from "./transports/interface.js";
 import type {
   GatewayTransportErrorHandler,
   TransportManager,
@@ -28,6 +32,7 @@ export interface GatewayClient {
   configuredTransports(): ReadonlySet<TransportName>;
   listChats(transport: TransportName): Promise<TransportChat[]>;
   listInvites(transport: TransportName): Promise<TransportInvite[]>;
+  health(transport: TransportName): Promise<TransportHealth[]>;
   leaveChat(
     transport: TransportName,
     chatId: string,
@@ -96,6 +101,11 @@ export class ManagerGatewayClient implements GatewayClient {
   async listInvites(transportName: TransportName): Promise<TransportInvite[]> {
     const transport = this.options.manager.getTransport(transportName);
     return transport.listInvites?.() ?? [];
+  }
+
+  async health(transportName: TransportName): Promise<TransportHealth[]> {
+    const transport = this.options.manager.getTransport(transportName);
+    return transport.health?.() ?? [];
   }
 
   async leaveChat(

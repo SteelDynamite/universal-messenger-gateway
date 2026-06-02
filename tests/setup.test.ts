@@ -57,6 +57,22 @@ test("sets up Matrix config and secret files", async () => {
   expect(output.text()).toContain("Matrix configured");
 });
 
+test("warns when encrypted setup has no recovery key", async () => {
+  const stateDir = await tempStateDir();
+  const output = new StringSink();
+
+  await runSetupCli({
+    input: Readable.from(["https://matrix.example\ny\naccess-token\n\n"]),
+    output,
+    errorOutput: new StringSink(),
+    stateDir,
+    transport: "matrix",
+  });
+
+  expect(output.text()).toContain("Matrix E2EE warning");
+  expect(output.text()).toContain("health will be checked on connect");
+});
+
 test("keeps existing Matrix secrets when blank", async () => {
   const stateDir = await tempStateDir();
   await runSetupCli({

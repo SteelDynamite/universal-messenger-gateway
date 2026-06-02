@@ -6,6 +6,7 @@ import {
   type TransportName,
   isTransportName,
 } from "./protocol.js";
+import type { TransportHealth } from "./transports/interface.js";
 import {
   type TransportManager,
   UnknownTransportError,
@@ -140,12 +141,8 @@ type PromptRuntime = ChatRuntime & {
   refreshPrompt(): void;
 };
 
-async function startChatSession({
-  client,
-  state,
-  write,
-  writeError,
-}: ChatRuntime): Promise<void> {
+async function startChatSession(context: ChatRuntime): Promise<void> {
+  const { client, state, write, writeError } = context;
   if (client.configuredTransports().size === 0) {
     write(noTransportsMessage());
     return;
@@ -154,6 +151,10 @@ async function startChatSession({
   await client.connect();
   await rememberListedChats(client, state, writeError);
   await rememberListedInvites(client, state, writeError);
+  await writeTransportHealth(context, {
+    includeDetails: false,
+    onlyProblems: true,
+  });
   write(
     "Connected. Type a message, /target <transport> <chatId>, /accept, /reject, /leave, /status, /configure, /connect, /disconnect, or /quit.\n",
   );
@@ -1301,6 +1302,41 @@ async function writeStatus(context: ChatRuntime): Promise<void> {
   context.write(`Transports: ${transports || "none"}\n`);
   context.write(`Known targets: ${knownTargetCount}\n`);
   context.write(`Pending invites: ${pendingInviteCount}\n`);
+  await writeTransportHealth(context, {
+    includeDetails: true,
+    onlyProblems: false,
+  });
+}
+
+async function writeTransportHealth(
+  context: ChatRuntime,
+  opts: { includeDetails: boolean; onlyProblems: boolean },
+): Promise<void> {
+  for (const transport of context.client.configuredTransports()) {
+    let checks: TransportHealth[];
+    try {
+      checks = await context.client.health(transport);
+    } catch (error) {
+      context.writeError(
+        `Could not read health for ${transport}: ${String(error)}\n`,
+      );
+      continue;
+    }
+
+    for (const check of checks) {
+      if (opts.onlyProblems && check.status === "ready") {
+        continue;
+      }
+      context.write(
+        `${transport} ${check.category}: ${check.status}, ${check.summary}\n`,
+      );
+      if (opts.includeDetails) {
+        for (const detail of check.details ?? []) {
+          context.write(`  - ${detail}\n`);
+        }
+      }
+    }
+  }
 }
 
 function rememberTarget(

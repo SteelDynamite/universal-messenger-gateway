@@ -39,6 +39,13 @@ npm run build
 node dist/cli.js chat
 ```
 
+On connect, `umg chat` evaluates Matrix E2EE health. `/status` prints the current
+`matrix-e2ee` check with details. `ready` means the local crypto machine is available, a
+recovery key was available for SSSS import, cross-signing identity exists, the device is
+cross-signed, and local key backup is active. `degraded` means encrypted DMs may still work,
+but first-message decrypt failures are more likely and should be debugged before relying on
+the session.
+
 Matrix state is written under `./state` by default:
 
 - `state/matrix-store.json` — Matrix SDK sync/storage state.

@@ -78,14 +78,17 @@ async function setupMatrix({
     "Enable encryption?",
     existingEncryption,
   );
+  const accessTokenFile = join(stateDir, "matrix-access-token.txt");
+  const recoveryKeyFile = join(stateDir, "matrix-recovery-key.txt");
+  const recoveryKeyExists = await fileExists(recoveryKeyFile);
   const accessToken = await promptSecret(output, question, {
     label: "Access token",
-    existingFile: join(stateDir, "matrix-access-token.txt"),
+    existingFile: accessTokenFile,
   });
   const recoveryKey = encryption
     ? await promptSecret(output, question, {
         label: "Recovery key for E2EE (optional)",
-        existingFile: join(stateDir, "matrix-recovery-key.txt"),
+        existingFile: recoveryKeyFile,
         optional: true,
       })
     : undefined;
@@ -108,12 +111,20 @@ async function setupMatrix({
 
   await saveGatewayConfig(stateDir, config);
   if (accessToken !== undefined) {
-    await writeSecret(join(stateDir, "matrix-access-token.txt"), accessToken);
+    await writeSecret(accessTokenFile, accessToken);
   }
   if (recoveryKey !== undefined) {
-    await writeSecret(join(stateDir, "matrix-recovery-key.txt"), recoveryKey);
+    await writeSecret(recoveryKeyFile, recoveryKey);
   }
 
+  if (encryption && recoveryKey === undefined && !recoveryKeyExists) {
+    output.write(
+      "Matrix E2EE warning: no recovery key was stored; connect health will be degraded until SSSS cross-signing secrets can be imported.\n",
+    );
+  }
+  if (encryption) {
+    output.write("Matrix E2EE health will be checked on connect.\n");
+  }
   output.write(`Matrix configured in ${stateDir}. Run: umg chat\n`);
 }
 

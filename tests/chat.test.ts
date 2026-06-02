@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import type {
   InboundMessage,
   TransportChat,
+  TransportHealth,
   TransportInvite,
   TransportProvider,
 } from "../src/index.js";
@@ -248,6 +249,32 @@ test("shows pending invite counts in status", async () => {
   expect(output.text()).toContain("Pending invites: 1");
 });
 
+test("shows transport health in status", async () => {
+  const matrix = new FakeTransport("matrix");
+  matrix.healthChecks = [
+    {
+      category: "matrix-e2ee",
+      status: "degraded",
+      summary: "degraded: recovery key missing",
+      details: ["problem: recovery key missing"],
+    },
+  ];
+  const manager = new TransportManager([matrix]);
+  const output = collectOutput();
+
+  await runChatCli({
+    input: scriptedInput("/status\n/quit\n"),
+    output,
+    errorOutput: collectOutput(),
+    manager,
+  });
+
+  expect(output.text()).toContain(
+    "matrix matrix-e2ee: degraded, degraded: recovery key missing",
+  );
+  expect(output.text()).toContain("problem: recovery key missing");
+});
+
 test("accepts pending invites", async () => {
   const matrix = new FakeTransport("matrix");
   const manager = new TransportManager([matrix]);
@@ -337,6 +364,7 @@ class FakeTransport implements TransportProvider {
   onConnect?: () => void;
   chats: TransportChat[] = [];
   invites: TransportInvite[] = [];
+  healthChecks: TransportHealth[] = [];
   sentMessages: Array<{ chatId: string; text: string }> = [];
   leftChats: string[] = [];
   leaveReasons: Array<string | undefined> = [];
@@ -363,6 +391,10 @@ class FakeTransport implements TransportProvider {
 
   async listInvites(): Promise<TransportInvite[]> {
     return this.invites;
+  }
+
+  async health(): Promise<TransportHealth[]> {
+    return this.healthChecks;
   }
 
   async sendMessage(chatId: string, text: string): Promise<void> {

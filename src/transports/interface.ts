@@ -20,6 +20,15 @@ export type TransportInvite = {
   inviter?: string;
 };
 
+export type TransportHealthStatus = "ready" | "degraded" | "disabled";
+
+export type TransportHealth = {
+  category: string;
+  status: TransportHealthStatus;
+  summary: string;
+  details?: string[];
+};
+
 export interface TransportProvider {
   readonly type: TransportName;
   readonly isConnected: boolean;
@@ -29,6 +38,7 @@ export interface TransportProvider {
   shutdownForProcessExit?(): void;
   listChats?(): Promise<TransportChat[]>;
   listInvites?(): Promise<TransportInvite[]>;
+  health?(): Promise<TransportHealth[]>;
   sendMessage(
     chatId: string,
     text: string,

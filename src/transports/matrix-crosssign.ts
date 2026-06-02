@@ -121,13 +121,15 @@ export function readRecoveryKey(stateDir?: string): string | undefined {
   );
 }
 
+export type CrossSignResult = {
+  status: "skipped" | "already" | "bootstrapped";
+  reason?: string;
+};
+
 export async function ensureSelfCrossSigned(
   client: MatrixClient,
   opts: CrossSignOptions = {},
-): Promise<{
-  status: "skipped" | "already" | "bootstrapped";
-  reason?: string;
-}> {
+): Promise<CrossSignResult> {
   const log = opts.log ?? ((message) => console.log(message));
   const warn = opts.warn ?? ((message) => console.warn(message));
   const machine = (
@@ -339,7 +341,7 @@ async function importViaRecoveryKey(
   await drainOutgoingRequests(client, machine, undefined, log, warn);
 }
 
-async function isDeviceCrossSigned(
+export async function isDeviceCrossSigned(
   client: MatrixClient,
   botUserId: string,
 ): Promise<boolean> {

@@ -48,6 +48,8 @@ export {
 export type {
   TransportChat,
   TransportErrorHandler,
+  TransportHealth,
+  TransportHealthStatus,
   TransportInvite,
   TransportMessageHandler,
   TransportProvider,

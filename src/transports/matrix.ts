@@ -16,11 +16,14 @@ import type {
 } from "../protocol.js";
 import type {
   TransportChat,
+  TransportHealth,
   TransportInvite,
   TransportProvider,
 } from "./interface.js";
 import {
+  type CrossSignResult,
   ensureSelfCrossSigned,
+  isDeviceCrossSigned,
   readAccessToken,
   readAccountPassword,
   readRecoveryKey,
@@ -41,6 +44,15 @@ type MatrixTransportConfig = {
   selfCrossSign?: boolean | "reset";
   accountPassword?: string;
   recoveryKey?: string;
+};
+
+type MatrixMachine = {
+  crossSigningStatus(): Promise<{
+    hasMaster: boolean;
+    hasSelfSigning: boolean;
+    hasUserSigning: boolean;
+  }>;
+  isBackupEnabled?(): Promise<boolean>;
 };
 
 type MatrixEvent = MatrixRoomEvent & {
@@ -109,6 +121,11 @@ export class MatrixProvider implements TransportProvider {
   #pendingInvites = new Map<string, TransportInvite>();
   #roomMemberCount = new Map<string, number>();
   #connectedAt = 0;
+  #e2eeHealth: TransportHealth = {
+    category: "matrix-e2ee",
+    status: "disabled",
+    summary: "encryption not checked yet",
+  };
 
   constructor(config: MatrixTransportConfig, stateDir: string) {
     this.#config = config;
@@ -206,9 +223,14 @@ export class MatrixProvider implements TransportProvider {
       LogService.setLogger(createSyncFilterLogger(defaultLogger));
       await this.#client.start();
 
+      let crossSignResult: CrossSignResult | undefined;
       if (cryptoProvider && this.#config.selfCrossSign !== false) {
-        await this.selfCrossSign();
+        crossSignResult = await this.selfCrossSign();
       }
+      this.#e2eeHealth = await this.evaluateE2eeHealth(
+        cryptoProvider,
+        crossSignResult,
+      );
     } catch (error) {
       this.resetClientState();
       throw error;
@@ -265,6 +287,10 @@ export class MatrixProvider implements TransportProvider {
 
   listInvites(): Promise<TransportInvite[]> {
     return Promise.resolve([...this.#pendingInvites.values()]);
+  }
+
+  health(): Promise<TransportHealth[]> {
+    return Promise.resolve([this.#e2eeHealth]);
   }
 
   async sendMessage(
@@ -409,9 +435,9 @@ export class MatrixProvider implements TransportProvider {
     });
   }
 
-  private async selfCrossSign(): Promise<void> {
+  private async selfCrossSign(): Promise<CrossSignResult | undefined> {
     if (!this.#client) {
-      return;
+      return undefined;
     }
 
     try {
@@ -429,9 +455,126 @@ export class MatrixProvider implements TransportProvider {
           new Error(`Matrix cross-sign skipped: ${result.reason}`),
         );
       }
+      return result;
     } catch (error) {
       this.#errorHandler?.(error);
+      return {
+        status: "skipped",
+        reason: error instanceof Error ? error.message : String(error),
+      };
     }
+  }
+
+  private async evaluateE2eeHealth(
+    cryptoProvider: RustSdkCryptoStorageProvider | undefined,
+    crossSignResult: CrossSignResult | undefined,
+  ): Promise<TransportHealth> {
+    if (this.#config.encryption === false) {
+      return {
+        category: "matrix-e2ee",
+        status: "disabled",
+        summary: "encryption disabled",
+      };
+    }
+
+    const details: string[] = [];
+    const problems: string[] = [];
+    if (!cryptoProvider) {
+      problems.push("crypto store was not created");
+    }
+
+    const machine = this.matrixMachine();
+    if (!machine) {
+      problems.push("Olm machine unavailable");
+    }
+
+    const recoveryKey =
+      this.#config.recoveryKey ?? readRecoveryKey(this.#stateDir);
+    if (recoveryKey) {
+      details.push("recovery key: present");
+    } else {
+      problems.push(
+        "recovery key missing; cannot import SSSS cross-signing secrets",
+      );
+    }
+
+    if (crossSignResult) {
+      details.push(
+        `cross-sign import: ${crossSignResult.status}${crossSignResult.reason ? ` (${crossSignResult.reason})` : ""}`,
+      );
+      if (crossSignResult.status === "skipped") {
+        problems.push(
+          `cross-signing skipped: ${crossSignResult.reason ?? "unknown reason"}`,
+        );
+      }
+    } else if (this.#config.selfCrossSign === false) {
+      problems.push("self cross-signing disabled by config");
+    }
+
+    if (machine) {
+      try {
+        const status = await machine.crossSigningStatus();
+        const hasIdentity =
+          status.hasMaster && status.hasSelfSigning && status.hasUserSigning;
+        details.push(
+          `cross-signing identity: ${hasIdentity ? "present" : "incomplete"}`,
+        );
+        if (!hasIdentity) {
+          problems.push("cross-signing identity incomplete");
+        }
+      } catch (error) {
+        problems.push(`cross-signing status unavailable: ${String(error)}`);
+      }
+
+      try {
+        const userId = this.#botUserId ?? (await this.#client?.getUserId());
+        const signed = userId
+          ? await isDeviceCrossSigned(this.#client as MatrixClient, userId)
+          : false;
+        details.push(`device signature: ${signed ? "signed" : "not signed"}`);
+        if (!signed) {
+          problems.push("device is not cross-signed");
+        }
+      } catch (error) {
+        problems.push(`device signature check failed: ${String(error)}`);
+      }
+
+      if (machine.isBackupEnabled) {
+        try {
+          const backupEnabled = await machine.isBackupEnabled();
+          details.push(
+            `key backup: ${backupEnabled ? "active" : "not active"}`,
+          );
+          if (!backupEnabled) {
+            problems.push(
+              "key backup is not active in the local crypto machine",
+            );
+          }
+        } catch (error) {
+          problems.push(`key backup status unavailable: ${String(error)}`);
+        }
+      } else {
+        details.push("key backup: status API unavailable");
+      }
+    }
+
+    return {
+      category: "matrix-e2ee",
+      status: problems.length === 0 ? "ready" : "degraded",
+      summary: problems.length === 0 ? "ready" : `degraded: ${problems[0]}`,
+      details: [
+        ...details,
+        ...problems.map((problem) => `problem: ${problem}`),
+      ],
+    };
+  }
+
+  private matrixMachine(): MatrixMachine | undefined {
+    return (
+      this.#client as unknown as {
+        crypto?: { engine?: { machine?: MatrixMachine } };
+      }
+    )?.crypto?.engine?.machine;
   }
 
   private async roomDisplayName(
