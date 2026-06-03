@@ -1,4 +1,9 @@
 export { runChatCli, type RunChatCliOptions } from "./chat.js";
+export {
+  createGateway,
+  type CreateGatewayOptions,
+  type Gateway,
+} from "./sdk.js";
 export { runAdminCli, type RunAdminCliOptions } from "./admin.js";
 export {
   ManagerGatewayClient,

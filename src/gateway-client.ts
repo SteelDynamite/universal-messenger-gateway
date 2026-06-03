@@ -27,8 +27,8 @@ export interface GatewayClient {
   disconnect(): Promise<void>;
   shutdownForProcessExit?(): void;
   send(command: GatewayCommand): Promise<void>;
-  onEvent(handler: GatewayEventHandler): void;
-  onError(handler: GatewayTransportErrorHandler): void;
+  onEvent(handler: GatewayEventHandler): () => void;
+  onError(handler: GatewayTransportErrorHandler): () => void;
   configuredTransports(): ReadonlySet<TransportName>;
   listChats(transport: TransportName): Promise<TransportChat[]>;
   listInvites(transport: TransportName): Promise<TransportInvite[]>;
@@ -152,12 +152,14 @@ export class ManagerGatewayClient implements GatewayClient {
     await this.options.manager.handleCommand(command);
   }
 
-  onEvent(handler: GatewayEventHandler): void {
+  onEvent(handler: GatewayEventHandler): () => void {
     this.#eventHandlers.add(handler);
+    return idempotentUnsubscribe(this.#eventHandlers, handler);
   }
 
-  onError(handler: GatewayTransportErrorHandler): void {
+  onError(handler: GatewayTransportErrorHandler): () => void {
     this.#errorHandlers.add(handler);
+    return idempotentUnsubscribe(this.#errorHandlers, handler);
   }
 
   async #handleAdminCommand(command: GatewayCommand): Promise<void> {
@@ -227,6 +229,17 @@ export class ManagerGatewayClient implements GatewayClient {
       handler(event);
     }
   }
+}
+
+function idempotentUnsubscribe<T>(handlers: Set<T>, handler: T): () => void {
+  let subscribed = true;
+  return () => {
+    if (!subscribed) {
+      return;
+    }
+    subscribed = false;
+    handlers.delete(handler);
+  };
 }
 
 function isAdminGatewayCommand(command: GatewayCommand): boolean {

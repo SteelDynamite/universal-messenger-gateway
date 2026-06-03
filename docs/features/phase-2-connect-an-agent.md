@@ -6,8 +6,9 @@ tags:
 
 # Phase 2 — Connect an agent
 
-Build the orchestrator that drives the gateway's standard I/O on a bot's behalf, replacing
-the cli.
+Build the orchestrator that connects a bot to the gateway, replacing the cli for production use.
+
+Prefer in-process SDK embedding via [Public Gateway SDK Factory](gateway-sdk.md). Standard I/O remains the generic gateway protocol and CLI smoke-test path.
 
 ## Scope
 
