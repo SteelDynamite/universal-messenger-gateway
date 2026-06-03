@@ -7,7 +7,9 @@ and cross-signing patches against that stack. Replacing the SDK while lifting th
 would mix a transport extraction with a Matrix client rewrite.
 
 `matrix-bot-sdk` currently pulls deprecated `request` dependencies that produce npm audit
-findings with no available transitive fix.
+findings with no available transitive fix. Current production audit findings are inherited
+through `matrix-bot-sdk` / `request` (`form-data`, `qs`, `request`, `request-promise`,
+`request-promise-core`, `tough-cookie`, and `uuid`).
 
 ## Decision
 
@@ -20,4 +22,5 @@ cross-signing requirement.
 - Matrix can be lifted with the known-working E2EE/cross-signing behavior from the fork.
 - The first live transport validates the gateway seam before any Matrix SDK rewrite.
 - npm audit reports inherited `request`-family vulnerabilities with no direct fix.
-- Revisit the Matrix client stack after Phase 1 proves live encrypted round-trips.
+- Do not run `npm audit fix --force`; it cannot remove this chain without a Matrix SDK change.
+- Revisit the Matrix client stack after live encrypted Matrix support is stable enough to replace the SDK deliberately.
