@@ -21,7 +21,7 @@ Export `createGateway(options?: { stateDir?: string })` so pi-bot can embed UMG 
 
 ## Public factory
 
-Add a convenience factory over `ManagerGatewayClient`:
+`createGateway` is a convenience factory over `ManagerGatewayClient`:
 
 ```ts
 const gateway: Gateway = await createGateway({ stateDir });
@@ -33,7 +33,7 @@ unsubscribe();
 await gateway.disconnect();
 ```
 
-`createGateway` should hide:
+`createGateway` hides:
 
 - state-dir resolution
 - config loading
@@ -49,7 +49,7 @@ Export a public return type alias:
 export type Gateway = GatewayClient;
 ```
 
-The public client should return idempotent unsubscribe functions for embedding cleanup:
+The public client returns idempotent unsubscribe functions for embedding cleanup:
 
 ```ts
 const unsubscribe: () => void = gateway.onEvent(handler);
@@ -70,7 +70,7 @@ Do not replace the gateway protocol. The SDK is a later embedding mode over the 
 
 ## Admin reload behavior
 
-For `configure_transport`, `connect_transport`, and `disconnect_transport`, the factory-provided client should:
+For `configure_transport`, `connect_transport`, and `disconnect_transport`, the factory-provided client:
 
 - execute the existing admin-command path against the same resolved `stateDir` used to construct the client
 - reload config from that same `stateDir`
@@ -91,7 +91,7 @@ This prevents custom `createGateway({ stateDir })` callers from writing config i
 
 ## pi-bot use
 
-pi-bot should import the factory directly:
+pi-bot imports the factory directly:
 
 ```text
 chat transport → UMG SDK → pi-bot → Pi SDK
@@ -115,3 +115,12 @@ Updates [Phase 2 — Connect an agent](phase-2-connect-an-agent.md): pi-bot shou
 - Factory tests cover custom `stateDir` for `configure_transport`, `connect_transport`, and `disconnect_transport`.
 - Existing gateway JSON-lines tests still pass.
 - Existing Matrix smoke still passes through the CLI path.
+
+## Verification
+
+- `npm run typecheck`
+- `npm run lint`
+- `npm test`
+- `npm run build`
+- `set -a && source state/matrix-smoke.env && set +a && UMG_MATRIX_SMOKE=1 npm run test:matrix-smoke`
+- pi-bot SDK embedding verified with `npm run typecheck`, `npm test`, and `npm run build` in `../pi-bot`.
