@@ -65,6 +65,9 @@ afterEach(async () => {
       provider.disconnect().catch(() => {}),
     ),
   );
+  if (config) {
+    await cleanupSmokeAccounts(config).catch(() => {});
+  }
   connectedParticipants.length = 0;
   roomsToLeave.length = 0;
 });
@@ -80,6 +83,53 @@ async function cleanupJoinedRooms(provider: MatrixProvider): Promise<void> {
         provider.leaveChat(roomId, "matrix smoke cleanup").catch(() => {}),
       ),
   );
+}
+
+async function cleanupSmokeAccounts(config: SmokeConfig): Promise<void> {
+  await Promise.all([
+    cleanupSmokeAccount(config.homeserverUrl, config.accountA.accessToken),
+    cleanupSmokeAccount(config.homeserverUrl, config.accountB.accessToken),
+    cleanupSmokeAccount(config.homeserverUrl, config.accountC.accessToken),
+  ]);
+}
+
+async function cleanupSmokeAccount(
+  homeserverUrl: string,
+  accessToken: string,
+): Promise<void> {
+  const client = new MatrixClient(homeserverUrl, accessToken);
+  const sync = await syncMatrixNow(homeserverUrl, accessToken);
+  const joinedRoomIds = Object.keys(sync.rooms?.join ?? {});
+  const invitedRoomIds = Object.keys(sync.rooms?.invite ?? {});
+
+  await Promise.all(
+    [...joinedRoomIds, ...invitedRoomIds].map((roomId) =>
+      client.leaveRoom(roomId, "matrix smoke cleanup").catch(() => {}),
+    ),
+  );
+}
+
+async function syncMatrixNow(
+  homeserverUrl: string,
+  accessToken: string,
+): Promise<{
+  rooms?: { join?: Record<string, unknown>; invite?: Record<string, unknown> };
+}> {
+  const response = await fetch(
+    `${homeserverUrl}/_matrix/client/v3/sync?timeout=0`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Matrix cleanup sync failed: ${response.status}`);
+  }
+  return (await response.json()) as {
+    rooms?: {
+      join?: Record<string, unknown>;
+      invite?: Record<string, unknown>;
+    };
+  };
 }
 
 runMatrixSmoke(
@@ -102,6 +152,7 @@ runMatrixSmoke(
       config.homeserverUrl,
       config.accountC.accessToken,
     ).getUserId();
+    await cleanupSmokeAccounts(config);
     const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const loggedInA = await loginSmokeAccount(
       config.accountA,
