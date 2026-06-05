@@ -8,6 +8,10 @@ import {
   createConfiguredTransports,
   parseMatrixConfig,
 } from "../src/index.js";
+import {
+  matrixRelatesTo,
+  messageReferences,
+} from "../src/transports/matrix.js";
 
 const tempDirs: string[] = [];
 
@@ -86,6 +90,88 @@ test("default registry creates Matrix transport", () => {
 
   expect(transports).toHaveLength(1);
   expect(transports[0]).toBeInstanceOf(MatrixProvider);
+});
+
+test("parses Matrix direct reply references", () => {
+  expect(
+    messageReferences(
+      "!room",
+      {
+        "m.relates_to": { "m.in_reply_to": { event_id: "$previous" } },
+      },
+      "matrix",
+    ),
+  ).toEqual({
+    replyTo: { transport: "matrix", chatId: "!room", messageId: "$previous" },
+  });
+});
+
+test("parses Matrix thread fallback separately from direct replies", () => {
+  expect(
+    messageReferences(
+      "!room",
+      {
+        "m.relates_to": {
+          rel_type: "m.thread",
+          event_id: "$root",
+          "m.in_reply_to": { event_id: "$root" },
+          is_falling_back: true,
+        },
+      },
+      "matrix",
+    ),
+  ).toEqual({
+    threadTo: { transport: "matrix", chatId: "!room", messageId: "$root" },
+  });
+});
+
+test("parses Matrix replies inside threads", () => {
+  expect(
+    messageReferences(
+      "!room",
+      {
+        "m.relates_to": {
+          rel_type: "m.thread",
+          event_id: "$root",
+          "m.in_reply_to": { event_id: "$previous" },
+        },
+      },
+      "matrix",
+    ),
+  ).toEqual({
+    replyTo: { transport: "matrix", chatId: "!room", messageId: "$previous" },
+    threadTo: { transport: "matrix", chatId: "!room", messageId: "$root" },
+  });
+});
+
+test("formats Matrix threaded outbound relations", () => {
+  expect(
+    matrixRelatesTo("!room", "matrix", undefined, {
+      transport: "matrix",
+      chatId: "!room",
+      messageId: "$root",
+    }),
+  ).toEqual({
+    rel_type: "m.thread",
+    event_id: "$root",
+    "m.in_reply_to": { event_id: "$root" },
+    is_falling_back: true,
+  });
+});
+
+test("formats Matrix replies inside threads", () => {
+  expect(
+    matrixRelatesTo(
+      "!room",
+      "matrix",
+      { transport: "matrix", chatId: "!room", messageId: "$previous" },
+      { transport: "matrix", chatId: "!room", messageId: "$root" },
+    ),
+  ).toEqual({
+    rel_type: "m.thread",
+    event_id: "$root",
+    "m.in_reply_to": { event_id: "$previous" },
+  });
 });
 
 async function tempStateDir(): Promise<string> {

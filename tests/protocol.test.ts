@@ -20,6 +20,11 @@ test("models inbound message events", () => {
         chatId: "!room:example.org",
         messageId: "$previous",
       },
+      threadTo: {
+        transport: "matrix",
+        chatId: "!room:example.org",
+        messageId: "$root",
+      },
     },
   } satisfies GatewayEvent;
 
@@ -33,6 +38,11 @@ test("models outbound gateway commands", () => {
       transport: "matrix",
       chatId: "!room:example.org",
       text: "hello back",
+      threadTo: {
+        transport: "matrix",
+        chatId: "!room:example.org",
+        messageId: "$root",
+      },
     },
     {
       type: "send_reaction",

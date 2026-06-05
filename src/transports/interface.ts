@@ -43,6 +43,7 @@ export interface TransportProvider {
     chatId: string,
     text: string,
     replyTo?: MessageReference,
+    threadTo?: MessageReference,
   ): Promise<void>;
   sendReaction?(
     chatId: string,

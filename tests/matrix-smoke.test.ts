@@ -269,6 +269,60 @@ runMatrixSmoke(
     });
     expect(messageBAtA.messageId).toEqual(expect.any(String));
 
+    const threadRoot = {
+      transport: "matrix" as const,
+      chatId: roomId,
+      messageId: requiredMessageId(messageAAtB),
+    };
+    const threadMessageFromB = `umg smoke thread b->a ${runId}`;
+    const receivedThreadByA = waitForMessage(
+      accountA,
+      (message) =>
+        message.chatId === roomId && message.content === threadMessageFromB,
+    );
+    await accountB.provider.sendMessage(
+      roomId,
+      threadMessageFromB,
+      undefined,
+      threadRoot,
+    );
+    const threadMessageAtA = await receivedThreadByA;
+    expect(threadMessageAtA).toMatchObject({
+      transport: "matrix",
+      chatId: roomId,
+      content: threadMessageFromB,
+      threadTo: threadRoot,
+    });
+    expect(threadMessageAtA.replyTo).toBeUndefined();
+
+    const threadReplyFromA = `umg smoke thread reply a->b ${runId}`;
+    const receivedThreadReplyByB = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === roomId && message.content === threadReplyFromA,
+    );
+    await accountA.provider.sendMessage(
+      roomId,
+      threadReplyFromA,
+      {
+        transport: "matrix",
+        chatId: roomId,
+        messageId: requiredMessageId(threadMessageAtA),
+      },
+      threadRoot,
+    );
+    expect(await receivedThreadReplyByB).toMatchObject({
+      transport: "matrix",
+      chatId: roomId,
+      content: threadReplyFromA,
+      replyTo: {
+        transport: "matrix",
+        chatId: roomId,
+        messageId: requiredMessageId(threadMessageAtA),
+      },
+      threadTo: threadRoot,
+    });
+
     const reaction = "👍";
     const receivedReactionByB = waitForReaction(
       accountB,
@@ -321,6 +375,26 @@ runMatrixSmoke(
       transport: "matrix",
       chatId: roomId,
       content: gatewayMessage,
+    });
+
+    const gatewayThreadMessage = `umg smoke gateway thread ${runId}`;
+    const receivedGatewayThreadByB = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === roomId && message.content === gatewayThreadMessage,
+    );
+    await gatewayManager.handleCommand({
+      type: "send_message",
+      transport: "matrix",
+      chatId: roomId,
+      text: gatewayThreadMessage,
+      threadTo: threadRoot,
+    });
+    expect(await receivedGatewayThreadByB).toMatchObject({
+      transport: "matrix",
+      chatId: roomId,
+      content: gatewayThreadMessage,
+      threadTo: threadRoot,
     });
 
     const gatewayInbound = `umg smoke gateway inbound ${runId}`;

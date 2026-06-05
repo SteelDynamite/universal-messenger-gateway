@@ -94,6 +94,7 @@ export class TransportManager {
           command.chatId,
           command.text,
           command.replyTo,
+          command.threadTo,
         );
         break;
       }

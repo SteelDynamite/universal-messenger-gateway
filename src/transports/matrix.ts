@@ -70,6 +70,7 @@ type MatrixEventContent = {
       event_id?: unknown;
     };
     event_id?: unknown;
+    is_falling_back?: unknown;
     key?: unknown;
     rel_type?: unknown;
   };
@@ -297,6 +298,7 @@ export class MatrixProvider implements TransportProvider {
     chatId: string,
     text: string,
     replyTo?: MessageReference,
+    threadTo?: MessageReference,
   ): Promise<void> {
     if (!this.#client) {
       throw new Error("Matrix client not connected");
@@ -306,16 +308,11 @@ export class MatrixProvider implements TransportProvider {
     }
 
     const { body, formattedBody } = formatForMatrix(text);
+    const relatesTo = matrixRelatesTo(chatId, this.type, replyTo, threadTo);
     await this.#client.sendMessage(chatId, {
       msgtype: "m.text",
       body,
-      ...(replyTo?.transport === this.type && replyTo.chatId === chatId
-        ? {
-            "m.relates_to": {
-              "m.in_reply_to": { event_id: replyTo.messageId },
-            },
-          }
-        : {}),
+      ...(relatesTo ? { "m.relates_to": relatesTo } : {}),
       ...(formattedBody
         ? { format: "org.matrix.custom.html", formatted_body: formattedBody }
         : {}),
@@ -707,7 +704,7 @@ export class MatrixProvider implements TransportProvider {
       isGroupChat,
       wasMentioned,
       ...(event.event_id ? { messageId: event.event_id } : {}),
-      ...messageReplyTo(roomId, event.content, this.type),
+      ...messageReferences(roomId, event.content, this.type),
     });
   }
 
@@ -778,15 +775,61 @@ function inviteDetails(event: MatrixInviteEvent): {
   };
 }
 
-function messageReplyTo(
+export function messageReferences(
   roomId: string,
   content: MatrixEventContent | undefined,
   transport: "matrix",
-): { replyTo?: MessageReference } {
-  const eventId = content?.["m.relates_to"]?.["m.in_reply_to"]?.event_id;
-  return typeof eventId === "string"
-    ? { replyTo: { transport, chatId: roomId, messageId: eventId } }
-    : {};
+): { replyTo?: MessageReference; threadTo?: MessageReference } {
+  const relatesTo = content?.["m.relates_to"];
+  const threadRootId =
+    relatesTo?.rel_type === "m.thread" && typeof relatesTo.event_id === "string"
+      ? relatesTo.event_id
+      : undefined;
+  const replyEventId = relatesTo?.["m.in_reply_to"]?.event_id;
+  const replyIsThreadFallback =
+    threadRootId !== undefined && relatesTo?.is_falling_back === true;
+
+  return {
+    ...(typeof replyEventId === "string" && !replyIsThreadFallback
+      ? { replyTo: { transport, chatId: roomId, messageId: replyEventId } }
+      : {}),
+    ...(threadRootId
+      ? { threadTo: { transport, chatId: roomId, messageId: threadRootId } }
+      : {}),
+  };
+}
+
+export function matrixRelatesTo(
+  chatId: string,
+  transport: "matrix",
+  replyTo?: MessageReference,
+  threadTo?: MessageReference,
+): MatrixEventContent["m.relates_to"] | undefined {
+  const validReplyTo =
+    replyTo?.transport === transport && replyTo.chatId === chatId
+      ? replyTo
+      : undefined;
+  const validThreadTo =
+    threadTo?.transport === transport && threadTo.chatId === chatId
+      ? threadTo
+      : undefined;
+
+  if (validThreadTo) {
+    return {
+      rel_type: "m.thread",
+      event_id: validThreadTo.messageId,
+      "m.in_reply_to": {
+        event_id: validReplyTo?.messageId ?? validThreadTo.messageId,
+      },
+      ...(validReplyTo ? {} : { is_falling_back: true }),
+    };
+  }
+
+  return validReplyTo
+    ? {
+        "m.in_reply_to": { event_id: validReplyTo.messageId },
+      }
+    : undefined;
 }
 
 export function createMatrixProvider(

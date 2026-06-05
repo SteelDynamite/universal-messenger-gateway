@@ -8,6 +8,7 @@ Inherited from the source extension:
 - **Build:** `tsc` (`npm run build`); typecheck with `tsc --noEmit` (`npm run typecheck`).
 - **Lint / format:** Biome — `npm run lint` (`biome check src/`), `npm run lint:fix`.
 - **Tests:** Vitest (`npm run test` → `vitest run`); property tests via fast-check.
+- Transport/protocol changes update and run live Matrix smoke tests.
 
 ## Code style
 

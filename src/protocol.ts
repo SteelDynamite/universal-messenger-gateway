@@ -30,6 +30,7 @@ export type InboundMessage = {
   isGroupChat: boolean;
   wasMentioned: boolean;
   replyTo?: MessageReference;
+  threadTo?: MessageReference;
 };
 
 export type InboundReaction = {
@@ -49,6 +50,7 @@ export type SendMessageCommand = {
   chatId: string;
   text: string;
   replyTo?: MessageReference;
+  threadTo?: MessageReference;
 };
 
 export type SendReactionCommand = {
@@ -121,7 +123,8 @@ export function isGatewayCommand(value: unknown): value is GatewayCommand {
       isTransportName(value.transport) &&
       typeof value.chatId === "string" &&
       typeof value.text === "string" &&
-      isOptionalMessageReference(value.replyTo)
+      isOptionalMessageReference(value.replyTo) &&
+      isOptionalMessageReference(value.threadTo)
     );
   }
 

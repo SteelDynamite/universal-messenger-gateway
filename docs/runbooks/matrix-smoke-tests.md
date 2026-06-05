@@ -52,8 +52,11 @@ UMG_MATRIX_A_RECOVERY_KEY='word1 word2 word3 ...'
   `displayName` is checked only when the homeserver includes room-name state in the invite.
 - Account A sends encrypted text through `MatrixProvider`; account B receives normalized text.
 - Account B replies with reply context; account A receives normalized text and `replyTo`.
+- Account B sends a Matrix thread message; account A receives normalized text and `threadTo` without fallback `replyTo`.
+- Account A replies inside that thread; account B receives normalized `replyTo` and `threadTo`.
 - Account A reacts to Account B's message; account B receives normalized reaction context.
 - Account A sends typing and text through the gateway JSON-lines command path.
+- Account A sends threaded text through the gateway command path.
 - Account B sends text that is serialized through the gateway JSON-lines event path.
 - Account A sends formatted text in an unencrypted room; Matrix receives the formatted body.
 - Accounts A, B, and C join an encrypted group room; Account A receives a normalized mention

@@ -41,7 +41,7 @@ test("fans outbound commands to the selected transport", async () => {
   expect(matrix.sentTyping).toEqual(["room"]);
 });
 
-test("passes outbound reply references to the selected transport", async () => {
+test("passes outbound reply and thread references to the selected transport", async () => {
   const matrix = new FakeTransport("matrix");
   const manager = new TransportManager([matrix]);
 
@@ -55,6 +55,11 @@ test("passes outbound reply references to the selected transport", async () => {
       chatId: "room",
       messageId: "$previous",
     },
+    threadTo: {
+      transport: "matrix",
+      chatId: "room",
+      messageId: "$root",
+    },
   });
 
   expect(matrix.sentMessages).toEqual([
@@ -62,6 +67,7 @@ test("passes outbound reply references to the selected transport", async () => {
       chatId: "room",
       text: "hello",
       replyTo: { transport: "matrix", chatId: "room", messageId: "$previous" },
+      threadTo: { transport: "matrix", chatId: "room", messageId: "$root" },
     },
   ]);
 });
@@ -156,6 +162,7 @@ class FakeTransport implements TransportProvider {
     chatId: string;
     text: string;
     replyTo?: MessageReference;
+    threadTo?: MessageReference;
   }> = [];
   sentReactions: Array<{
     chatId: string;
@@ -181,8 +188,14 @@ class FakeTransport implements TransportProvider {
     chatId: string,
     text: string,
     replyTo?: MessageReference,
+    threadTo?: MessageReference,
   ): Promise<void> {
-    this.sentMessages.push({ chatId, text, ...(replyTo ? { replyTo } : {}) });
+    this.sentMessages.push({
+      chatId,
+      text,
+      ...(replyTo ? { replyTo } : {}),
+      ...(threadTo ? { threadTo } : {}),
+    });
   }
 
   async sendReaction(

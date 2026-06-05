@@ -1,7 +1,7 @@
 # Feature Testing
 
 Use this loop when a feature changes transport behavior, gateway protocol shape, or live
-Matrix behavior.
+Matrix behavior. Update and run live smoke tests for every such change.
 
 ## Local Verification
 
@@ -16,6 +16,8 @@ npm test
 The full test suite skips live Matrix smoke tests unless `UMG_MATRIX_SMOKE=1` is set.
 
 ## Live Matrix Smoke
+
+Keep `tests/matrix-smoke.test.ts` current with transport/protocol behavior changes.
 
 Use the gitignored local smoke env file when it exists:
 
