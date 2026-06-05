@@ -451,6 +451,34 @@ runMatrixSmoke(
       "<code>code</code>",
     );
 
+    const attachmentMediaId = `mxc://example.org/umg-smoke-${runId}`;
+    const receivedAttachmentByB = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === formattedRoomId &&
+        message.attachments?.[0]?.mediaId === attachmentMediaId,
+    );
+    await controlClient.sendMessage(formattedRoomId, {
+      msgtype: "m.file",
+      body: "smoke.txt",
+      url: attachmentMediaId,
+      info: { mimetype: "text/plain", size: 42 },
+    });
+    expect(await receivedAttachmentByB).toMatchObject({
+      transport: "matrix",
+      chatId: formattedRoomId,
+      content: "smoke.txt",
+      attachments: [
+        {
+          mediaId: attachmentMediaId,
+          kind: "file",
+          fileName: "smoke.txt",
+          mimeType: "text/plain",
+          sizeBytes: 42,
+        },
+      ],
+    });
+
     const groupRoomId = await controlClient.createRoom({
       preset: "private_chat",
       visibility: "private",

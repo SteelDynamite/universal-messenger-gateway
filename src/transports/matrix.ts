@@ -32,6 +32,7 @@ import {
   type MatrixRoomEvent,
   extractUsername,
   formatForMatrix,
+  mediaAttachmentFromMatrixContent,
   shouldSkipEvent,
   stripBotMention,
   wasBotMentioned,
@@ -62,7 +63,14 @@ type MatrixEvent = MatrixRoomEvent & {
 };
 
 type MatrixEventContent = {
-  body?: unknown;
+  msgtype?: string;
+  body?: string;
+  url?: string;
+  file?: { url?: string };
+  info?: {
+    mimetype?: string;
+    size?: number;
+  };
   format?: unknown;
   formatted_body?: unknown;
   "m.relates_to"?: {
@@ -201,6 +209,13 @@ export class MatrixProvider implements TransportProvider {
     this.#client.on("room.event", (roomId: string, event: MatrixEvent) => {
       if (event.type === "m.room.member") {
         this.refreshRoomMemberCount(roomId);
+        return;
+      }
+
+      if (event.type === "m.room.message" && event.content?.msgtype !== "m.text") {
+        void this.handleMessage(roomId, event).catch((error: unknown) => {
+          this.#errorHandler?.(error);
+        });
         return;
       }
 
@@ -665,9 +680,10 @@ export class MatrixProvider implements TransportProvider {
       return;
     }
 
-    const messageText = event.content?.body;
+    const messageText = event.content?.body ?? "";
+    const attachment = mediaAttachmentFromMatrixContent(event.content);
     const userId = event.sender;
-    if (!messageText || !userId) {
+    if ((!messageText && !attachment) || !userId) {
       return;
     }
 
@@ -690,7 +706,7 @@ export class MatrixProvider implements TransportProvider {
       ? stripBotMention(messageText, this.#botUserId)
       : messageText;
 
-    if (!content) {
+    if (!content && !attachment) {
       return;
     }
 
@@ -703,6 +719,7 @@ export class MatrixProvider implements TransportProvider {
       timestamp: event.origin_server_ts ?? Date.now(),
       isGroupChat,
       wasMentioned,
+      ...(attachment ? { attachments: [attachment] } : {}),
       ...(event.event_id ? { messageId: event.event_id } : {}),
       ...messageReferences(roomId, event.content, this.type),
     });

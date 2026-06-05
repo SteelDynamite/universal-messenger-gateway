@@ -15,6 +15,15 @@ test("models inbound message events", () => {
       messageId: "$event",
       isGroupChat: true,
       wasMentioned: false,
+      attachments: [
+        {
+          mediaId: "mxc://example/photo",
+          kind: "image",
+          fileName: "photo.png",
+          mimeType: "image/png",
+          sizeBytes: 1234,
+        },
+      ],
       replyTo: {
         transport: "matrix",
         chatId: "!room:example.org",
@@ -29,6 +38,7 @@ test("models inbound message events", () => {
   } satisfies GatewayEvent;
 
   expect(event.message.content).toBe("hello");
+  expect(event.message.attachments?.[0]?.kind).toBe("image");
 });
 
 test("models outbound gateway commands", () => {

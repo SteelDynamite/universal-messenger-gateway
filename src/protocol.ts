@@ -19,6 +19,17 @@ export type MessageReference = {
   messageId: string;
 };
 
+export type MediaAttachmentKind = "image" | "file" | "audio" | "video";
+
+export type MediaAttachment = {
+  mediaId: string;
+  kind: MediaAttachmentKind;
+  fileName?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  description?: string;
+};
+
 export type InboundMessage = {
   chatId: string;
   transport: TransportName;
@@ -29,6 +40,7 @@ export type InboundMessage = {
   messageId?: string;
   isGroupChat: boolean;
   wasMentioned: boolean;
+  attachments?: MediaAttachment[];
   replyTo?: MessageReference;
   threadTo?: MessageReference;
 };

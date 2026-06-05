@@ -4,6 +4,7 @@ import {
   escapeHtml,
   extractUsername,
   formatForMatrix,
+  mediaAttachmentFromMatrixContent,
   shouldSkipEvent,
   stripBotMention,
   wasBotMentioned,
@@ -170,16 +171,28 @@ describe("shouldSkipEvent", () => {
     ).toBeNull();
   });
 
-  it("skips non-text messages", () => {
+  it("accepts supported media messages", () => {
     expect(
       shouldSkipEvent(
-        makeEvent({ content: { msgtype: "m.image", body: "photo" } }),
+        makeEvent({ content: { msgtype: "m.image", body: "photo.png", url: "mxc://example/photo" } }),
         botUserId,
         connectedAt,
         joinedRooms,
         "!room1:matrix.org",
       ),
-    ).toBe("not_text");
+    ).toBeNull();
+  });
+
+  it("skips unsupported messages", () => {
+    expect(
+      shouldSkipEvent(
+        makeEvent({ content: { msgtype: "m.location", body: "geo" } }),
+        botUserId,
+        connectedAt,
+        joinedRooms,
+        "!room1:matrix.org",
+      ),
+    ).toBe("unsupported_message");
   });
 
   it("skips edits", () => {
@@ -210,6 +223,44 @@ describe("shouldSkipEvent", () => {
         "!unknown:matrix.org",
       ),
     ).toBe("not_joined");
+  });
+});
+
+describe("mediaAttachmentFromMatrixContent", () => {
+  it("extracts Matrix media metadata", () => {
+    expect(
+      mediaAttachmentFromMatrixContent({
+        msgtype: "m.image",
+        body: "photo.png",
+        url: "mxc://example/photo",
+        info: { mimetype: "image/png", size: 1234 },
+      }),
+    ).toEqual({
+      mediaId: "mxc://example/photo",
+      kind: "image",
+      fileName: "photo.png",
+      description: "photo.png",
+      mimeType: "image/png",
+      sizeBytes: 1234,
+    });
+  });
+
+  it("extracts encrypted-file media URLs", () => {
+    expect(
+      mediaAttachmentFromMatrixContent({
+        msgtype: "m.file",
+        body: "doc.pdf",
+        file: { url: "mxc://example/encrypted" },
+      }),
+    ).toMatchObject({
+      mediaId: "mxc://example/encrypted",
+      kind: "file",
+      fileName: "doc.pdf",
+    });
+  });
+
+  it("ignores non-media content", () => {
+    expect(mediaAttachmentFromMatrixContent({ msgtype: "m.text", body: "hello" })).toBeUndefined();
   });
 });
 

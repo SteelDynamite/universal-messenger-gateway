@@ -1,7 +1,7 @@
 ---
 parent: "[[client-capability-backlog]]"
 tags:
-  - status/backlog
+  - status/in-progress
 ---
 
 # Rich Message Capabilities
@@ -16,7 +16,8 @@ client behavior.
 - Reactions with message context.
 - Sending reactions to specific messages.
 - Message IDs and references on all supported inbound/outbound surfaces.
-- Future room-client behavior: edits, receipts, media, and profile context.
+- Inbound media metadata.
+- Future room-client behavior: edits, receipts, media downloads, and profile context.
 
 ## Protocol Direction
 
@@ -26,8 +27,8 @@ references.
 
 Likely surfaces:
 
-- Inbound message includes `messageId`, optional `replyTo`, optional `thread`, and optional
-  relationship metadata.
+- Inbound message includes `messageId`, optional `replyTo`, optional `thread`, optional
+  relationship metadata, and optional `attachments`.
 - Inbound reaction includes `{ transport, chatId, messageId, reaction, sender }` and a
   reference to the reacted-to message.
 - Outbound send can include `replyTo` and thread targeting.
@@ -39,4 +40,16 @@ Likely surfaces:
 - Matrix replies include usable context for the referenced message.
 - Matrix reactions are received with enough context to display and route them.
 - Matrix reactions can be sent to a specific prior message.
+- Matrix inbound media events emit attachment metadata.
 - Automated Matrix smoke tests cover the above.
+
+## Implemented media metadata
+
+Inbound Matrix `m.image`, `m.file`, `m.audio`, and `m.video` events produce an attachment envelope with:
+
+- `mediaId` from Matrix `url` or encrypted-file `file.url`.
+- `kind`.
+- `fileName` / `description` from `body`.
+- `mimeType` and `sizeBytes` from `info` when present.
+
+The gateway does not download media yet.

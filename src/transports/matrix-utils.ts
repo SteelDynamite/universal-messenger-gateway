@@ -3,12 +3,20 @@
  * Extracted for testability; no SDK or network dependencies.
  */
 
+import type { MediaAttachment } from "../protocol.js";
+
 export type MatrixRoomEvent = {
   sender?: string;
   origin_server_ts?: number;
   content?: {
     msgtype?: string;
     body?: string;
+    url?: string;
+    file?: { url?: string };
+    info?: {
+      mimetype?: string;
+      size?: number;
+    };
     "m.new_content"?: unknown;
   };
 };
@@ -82,8 +90,8 @@ export function shouldSkipEvent(
   }
 
   const content = event.content;
-  if (!content || content.msgtype !== "m.text" || !content.body) {
-    return "not_text";
+  if (!content || !isSupportedMessageContent(content)) {
+    return "unsupported_message";
   }
 
   if (content["m.new_content"]) {
@@ -95,6 +103,45 @@ export function shouldSkipEvent(
   }
 
   return null;
+}
+
+export function mediaAttachmentFromMatrixContent(content: MatrixRoomEvent["content"]): MediaAttachment | undefined {
+  if (!content?.msgtype) {
+    return undefined;
+  }
+
+  const kind = mediaKindForMatrixMsgType(content.msgtype);
+  if (!kind) {
+    return undefined;
+  }
+
+  const mediaId = content.url ?? content.file?.url;
+  if (!mediaId) {
+    return undefined;
+  }
+
+  return {
+    mediaId,
+    kind,
+    ...(content.body ? { fileName: content.body, description: content.body } : {}),
+    ...(content.info?.mimetype ? { mimeType: content.info.mimetype } : {}),
+    ...(typeof content.info?.size === "number" ? { sizeBytes: content.info.size } : {}),
+  };
+}
+
+function isSupportedMessageContent(content: NonNullable<MatrixRoomEvent["content"]>): boolean {
+  if (content.msgtype === "m.text") {
+    return !!content.body;
+  }
+  return !!mediaAttachmentFromMatrixContent(content);
+}
+
+function mediaKindForMatrixMsgType(msgtype: string): MediaAttachment["kind"] | undefined {
+  if (msgtype === "m.image") return "image";
+  if (msgtype === "m.file") return "file";
+  if (msgtype === "m.audio") return "audio";
+  if (msgtype === "m.video") return "video";
+  return undefined;
 }
 
 export function extractUsername(userId: string): string {
