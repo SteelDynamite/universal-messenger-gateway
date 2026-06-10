@@ -9,6 +9,8 @@ import {
   parseMatrixConfig,
 } from "../src/index.js";
 import {
+  createMatrixLogger,
+  createSyncFilterLogger,
   matrixRelatesTo,
   messageReferences,
 } from "../src/transports/matrix.js";
@@ -157,6 +159,43 @@ test("formats Matrix threaded outbound relations", () => {
     "m.in_reply_to": { event_id: "$root" },
     is_falling_back: true,
   });
+});
+
+test("Matrix logger writes to the provided non-stdout stream", () => {
+  const chunks: string[] = [];
+  const logger = createMatrixLogger({
+    write(chunk: string) {
+      chunks.push(chunk);
+      return true;
+    },
+  });
+
+  logger.info("MatrixClientLite", "connected");
+  logger.error("MatrixHttpClient", new Error("failed"));
+
+  expect(chunks.join("")).toContain("[INFO] [MatrixClientLite] connected");
+  expect(chunks.join("")).toContain("[ERROR] [MatrixHttpClient] Error: failed");
+});
+
+test("Matrix logger filters noisy sync errors", () => {
+  const chunks: string[] = [];
+  const logger = createSyncFilterLogger(
+    createMatrixLogger({
+      write(chunk: string) {
+        chunks.push(chunk);
+        return true;
+      },
+    }),
+  );
+
+  logger.error("MatrixClientLite", "Decryption error from backlog");
+  logger.error("MatrixHttpClient", "M_NOT_FOUND missing relation");
+  logger.error("MatrixHttpClient", "M_FORBIDDEN send failed");
+
+  const output = chunks.join("");
+  expect(output).not.toContain("Decryption error");
+  expect(output).not.toContain("M_NOT_FOUND");
+  expect(output).toContain("M_FORBIDDEN send failed");
 });
 
 test("formats Matrix replies inside threads", () => {

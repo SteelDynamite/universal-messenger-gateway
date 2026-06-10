@@ -57,7 +57,7 @@ process-lifetime problem appears.
 
 The cli round-trips real encrypted Matrix messages with no bot involved. The live Matrix
 smoke test covers the gateway JSON-lines command/event path and the admin cli flow.
-Gateway mode disconnects transports on stdin EOF.
+Gateway mode disconnects transports on stdin EOF and reserves stdout for JSON-lines events only.
 
 Related: 
 [0001](../decisions/0001-extract-transport-layer-as-a-standalone-gateway.md),

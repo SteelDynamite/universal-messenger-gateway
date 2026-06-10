@@ -130,8 +130,8 @@ export async function ensureSelfCrossSigned(
   client: MatrixClient,
   opts: CrossSignOptions = {},
 ): Promise<CrossSignResult> {
-  const log = opts.log ?? ((message) => console.log(message));
-  const warn = opts.warn ?? ((message) => console.warn(message));
+  const log = opts.log ?? ((message) => process.stderr.write(`${message}\n`));
+  const warn = opts.warn ?? ((message) => process.stderr.write(`${message}\n`));
   const machine = (
     client as unknown as { crypto?: { engine?: { machine?: MatrixMachine } } }
   ).crypto?.engine?.machine;

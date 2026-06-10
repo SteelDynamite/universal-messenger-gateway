@@ -13,7 +13,8 @@ but that solves a lifecycle problem that has not appeared yet.
 Use newline-delimited JSON over stdio for Phase 1 gateway I/O.
 
 The cli starts the gateway process, sends `GatewayCommand` objects on stdin, and reads
-`GatewayEvent` objects from stdout. The envelope is defined in `src/protocol.ts`.
+`GatewayEvent` objects from stdout. Gateway-mode stdout is reserved for JSON-lines
+events; logs go to stderr. The envelope is defined in `src/protocol.ts`.
 
 Do not add daemon or socket behavior unless an actual consumer or transport problem makes
 process lifetime a proven requirement.

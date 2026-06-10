@@ -4,7 +4,6 @@ import type { ILogger } from "matrix-bot-sdk";
 import {
   LogService,
   MatrixClient,
-  RichConsoleLogger,
   RustSdkCryptoStorageProvider,
   SimpleFsStorageProvider,
 } from "matrix-bot-sdk";
@@ -238,8 +237,7 @@ export class MatrixProvider implements TransportProvider {
     );
 
     try {
-      const defaultLogger = new RichConsoleLogger();
-      LogService.setLogger(createSyncFilterLogger(defaultLogger));
+      LogService.setLogger(createSyncFilterLogger(createMatrixLogger()));
       await this.#client.start();
 
       let crossSignResult: CrossSignResult | undefined;
@@ -1006,16 +1004,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function createSyncFilterLogger(defaultLogger: ILogger): ILogger {
+export function createMatrixLogger(
+  output: Pick<NodeJS.WritableStream, "write"> = process.stderr,
+): ILogger {
+  const write = (level: string, module: string, ...args: unknown[]) => {
+    output.write(
+      `${new Date().toUTCString()} [${level}] [${module}] ${args.map(formatLogArg).join(" ")}\n`,
+    );
+  };
+  return {
+    info: (module, ...args) => write("INFO", module, ...args),
+    warn: (module, ...args) => write("WARN", module, ...args),
+    debug: (module, ...args) => write("DEBUG", module, ...args),
+    trace: (module, ...args) => write("TRACE", module, ...args),
+    error: (module, ...args) => write("ERROR", module, ...args),
+  };
+}
+
+export function createSyncFilterLogger(defaultLogger: ILogger): ILogger {
   return {
     info: (module, ...args) => defaultLogger.info(module, ...args),
     warn: (module, ...args) => defaultLogger.warn(module, ...args),
     debug: (module, ...args) => defaultLogger.debug(module, ...args),
     trace: (module, ...args) => defaultLogger.trace(module, ...args),
     error: (module, ...args) => {
-      const message = args
-        .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
-        .join(" ");
+      const message = args.map(formatLogArg).join(" ");
       if (
         module === "MatrixClientLite" &&
         message.includes("Decryption error")
@@ -1028,6 +1041,20 @@ function createSyncFilterLogger(defaultLogger: ILogger): ILogger {
       defaultLogger.error(module, ...args);
     },
   };
+}
+
+function formatLogArg(arg: unknown): string {
+  if (typeof arg === "string") {
+    return arg;
+  }
+  if (arg instanceof Error) {
+    return arg.stack ?? arg.message;
+  }
+  try {
+    return JSON.stringify(arg) ?? String(arg);
+  } catch {
+    return String(arg);
+  }
 }
 
 function displayNameFromProfile(profile: unknown): string | undefined {
