@@ -42,32 +42,37 @@ export function formatForMatrix(text: string): MatrixFormattedMessage {
   }
 
   let html = text;
-  const codeBlocks: string[] = [];
-  const inlineCodes: string[] = [];
+  const tokens: string[] = [];
+  const token = (value: string): string => {
+    tokens.push(value);
+    return `\uE000${tokens.length - 1}\uE000`;
+  };
 
   html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-    codeBlocks.push(
-      `<pre><code${lang ? ` class="language-${lang}"` : ""}>${escapeHtml(code.trimEnd())}</code></pre>`,
+    const safeLang = typeof lang === "string" && /^\w+$/.test(lang) ? lang : "";
+    return token(
+      `<pre><code${safeLang ? ` class="language-${safeLang}"` : ""}>${escapeHtml(String(code).trimEnd())}</code></pre>`,
     );
-    return `__CODEBLOCK_${codeBlocks.length - 1}__`;
   });
 
-  html = html.replace(/`([^`]+)`/g, (_, code) => {
-    inlineCodes.push(`<code>${escapeHtml(code)}</code>`);
-    return `__INLINECODE_${inlineCodes.length - 1}__`;
+  html = html.replace(/`([^`]+)`/g, (_, code) =>
+    token(`<code>${escapeHtml(String(code))}</code>`),
+  );
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
+    const safeHref = safeMatrixHref(String(href).trim());
+    if (!safeHref) return escapeHtml(String(match));
+    return token(
+      `<a href="${escapeHtml(safeHref)}">${escapeHtml(String(label))}</a>`,
+    );
   });
 
+  html = escapeHtml(html);
   html = html.replace(/\*\*([^*]+?)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/(?<!\*)\*(?!\*)([^*]+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>");
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
   html = html.replace(/\n/g, "<br>");
   html = html.replace(
-    /__CODEBLOCK_(\d+)__/g,
-    (_, idx) => codeBlocks[Number.parseInt(idx, 10)] ?? "",
-  );
-  html = html.replace(
-    /__INLINECODE_(\d+)__/g,
-    (_, idx) => inlineCodes[Number.parseInt(idx, 10)] ?? "",
+    /\uE000(\d+)\uE000/g,
+    (_, idx) => tokens[Number.parseInt(idx, 10)] ?? "",
   );
 
   return { body: text, formattedBody: html };
@@ -105,6 +110,29 @@ export function shouldSkipEvent(
   return null;
 }
 
+export function shouldSkipReactionEvent(
+  event: Pick<MatrixRoomEvent, "sender" | "origin_server_ts">,
+  botUserId: string,
+  connectedAt: number,
+  joinedRooms: Set<string>,
+  roomId: string,
+): string | null {
+  if (event.sender === botUserId) {
+    return "own_reaction";
+  }
+
+  const eventTs = event.origin_server_ts ?? 0;
+  if (eventTs < connectedAt) {
+    return "stale";
+  }
+
+  if (!joinedRooms.has(roomId)) {
+    return "not_joined";
+  }
+
+  return null;
+}
+
 export function mediaAttachmentFromMatrixContent(
   content: MatrixRoomEvent["content"],
 ): MediaAttachment | undefined {
@@ -133,6 +161,20 @@ export function mediaAttachmentFromMatrixContent(
       ? { sizeBytes: content.info.size }
       : {}),
   };
+}
+
+function safeMatrixHref(href: string): string | undefined {
+  if (!href) return undefined;
+  if (href.startsWith("mxc://")) return href;
+
+  try {
+    const url = new URL(href);
+    return ["http:", "https:", "mailto:", "matrix:"].includes(url.protocol)
+      ? href
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isSupportedMessageContent(

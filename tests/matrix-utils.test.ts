@@ -6,6 +6,7 @@ import {
   formatForMatrix,
   mediaAttachmentFromMatrixContent,
   shouldSkipEvent,
+  shouldSkipReactionEvent,
   stripBotMention,
   wasBotMentioned,
 } from "../src/transports/matrix-utils.js";
@@ -69,6 +70,18 @@ describe("formatForMatrix", () => {
     );
   });
 
+  it("escapes link labels and rejects unsafe URL schemes", () => {
+    const label = formatForMatrix(
+      'click [<b>here</b>](https://example.com?q="x")',
+    );
+    expect(label.formattedBody).toContain(
+      '<a href="https://example.com?q=&quot;x&quot;">&lt;b&gt;here&lt;/b&gt;</a>',
+    );
+
+    const unsafe = formatForMatrix("click [here](javascript:alert(1))");
+    expect(unsafe.formattedBody).not.toContain("<a ");
+  });
+
   it("converts newlines to <br>", () => {
     const result = formatForMatrix("line *one*\nline two");
     expect(result.formattedBody).toContain("<br>");
@@ -100,6 +113,14 @@ describe("formatForMatrix", () => {
   it("escapes HTML inside inline code", () => {
     const result = formatForMatrix("use `<div>` tag");
     expect(result.formattedBody).toContain("&lt;div&gt;");
+  });
+
+  it("escapes HTML outside code", () => {
+    const result = formatForMatrix("<img src=x onerror=alert(1)> and **bold**");
+    expect(result.formattedBody).toContain(
+      "&lt;img src=x onerror=alert(1)&gt;",
+    );
+    expect(result.formattedBody).not.toContain("<img");
   });
 
   it("preserves original text as body even when formatted", () => {
@@ -229,6 +250,60 @@ describe("shouldSkipEvent", () => {
         "!unknown:matrix.org",
       ),
     ).toBe("not_joined");
+  });
+});
+
+describe("shouldSkipReactionEvent", () => {
+  const botUserId = "@bot:matrix.org";
+  const connectedAt = 1000;
+  const joinedRooms = new Set(["!room1:matrix.org"]);
+
+  it("skips own reactions", () => {
+    expect(
+      shouldSkipReactionEvent(
+        { sender: botUserId, origin_server_ts: 2000 },
+        botUserId,
+        connectedAt,
+        joinedRooms,
+        "!room1:matrix.org",
+      ),
+    ).toBe("own_reaction");
+  });
+
+  it("skips stale reactions", () => {
+    expect(
+      shouldSkipReactionEvent(
+        { sender: "@user:matrix.org", origin_server_ts: 999 },
+        botUserId,
+        connectedAt,
+        joinedRooms,
+        "!room1:matrix.org",
+      ),
+    ).toBe("stale");
+  });
+
+  it("skips reactions for rooms not joined after connect", () => {
+    expect(
+      shouldSkipReactionEvent(
+        { sender: "@user:matrix.org", origin_server_ts: 2000 },
+        botUserId,
+        connectedAt,
+        joinedRooms,
+        "!unknown:matrix.org",
+      ),
+    ).toBe("not_joined");
+  });
+
+  it("accepts current reactions from joined rooms", () => {
+    expect(
+      shouldSkipReactionEvent(
+        { sender: "@user:matrix.org", origin_server_ts: 2000 },
+        botUserId,
+        connectedAt,
+        joinedRooms,
+        "!room1:matrix.org",
+      ),
+    ).toBeNull();
   });
 });
 

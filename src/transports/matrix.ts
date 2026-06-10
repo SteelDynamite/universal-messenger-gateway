@@ -33,6 +33,7 @@ import {
   formatForMatrix,
   mediaAttachmentFromMatrixContent,
   shouldSkipEvent,
+  shouldSkipReactionEvent,
   stripBotMention,
   wasBotMentioned,
 } from "./matrix-utils.js";
@@ -167,78 +168,66 @@ export class MatrixProvider implements TransportProvider {
       }
     }
 
-    this.#client = new MatrixClient(
+    const client = new MatrixClient(
       this.#config.homeserverUrl,
       this.#config.accessToken,
       storage,
       cryptoProvider,
     );
+    this.#client = client;
 
-    this.#botUserId = await this.#client.getUserId();
-    this.#connectedAt = Date.now();
-    this.installRoomKeyDiagnostics();
+    try {
+      this.#botUserId = await client.getUserId();
+      this.#connectedAt = Date.now();
+      this.installRoomKeyDiagnostics();
 
-    this.#client.on("room.join", (roomId: string) => {
-      this.#joinedRooms.add(roomId);
-      this.#pendingInvites.delete(roomId);
-      this.#client
-        ?.getJoinedRoomMembers(roomId)
-        .then((members) => this.#roomMemberCount.set(roomId, members.length))
-        .catch(() => {});
-    });
-    this.#client.on("room.leave", (roomId: string) => {
-      this.#joinedRooms.delete(roomId);
-      this.#pendingInvites.delete(roomId);
-      this.#roomMemberCount.delete(roomId);
-    });
-    this.#client.on(
-      "room.invite",
-      (roomId: string, event: MatrixInviteEvent) => {
+      client.on("room.join", (roomId: string) => {
+        this.#joinedRooms.add(roomId);
+        this.#pendingInvites.delete(roomId);
+        this.#client
+          ?.getJoinedRoomMembers(roomId)
+          .then((members) => this.#roomMemberCount.set(roomId, members.length))
+          .catch(() => {});
+      });
+      client.on("room.leave", (roomId: string) => {
+        this.#joinedRooms.delete(roomId);
+        this.#pendingInvites.delete(roomId);
+        this.#roomMemberCount.delete(roomId);
+      });
+      client.on("room.invite", (roomId: string, event: MatrixInviteEvent) => {
         this.#pendingInvites.set(roomId, {
           inviteId: roomId,
           ...inviteDetails(event),
         });
-      },
-    );
-    this.#client.on("room.message", (roomId: string, event: MatrixEvent) => {
-      void this.handleMessage(roomId, event).catch((error: unknown) => {
-        this.#errorHandler?.(error);
       });
-    });
-    this.#client.on("room.event", (roomId: string, event: MatrixEvent) => {
-      if (event.type === "m.room.member") {
-        this.refreshRoomMemberCount(roomId);
-        return;
-      }
-
-      if (
-        event.type === "m.room.message" &&
-        event.content?.msgtype !== "m.text"
-      ) {
+      client.on("room.message", (roomId: string, event: MatrixEvent) => {
         void this.handleMessage(roomId, event).catch((error: unknown) => {
           this.#errorHandler?.(error);
         });
-        return;
-      }
+      });
+      client.on("room.event", (roomId: string, event: MatrixEvent) => {
+        if (event.type === "m.room.member") {
+          this.refreshRoomMemberCount(roomId);
+          return;
+        }
 
-      if (event.type !== "m.reaction") {
-        return;
-      }
+        if (event.type !== "m.reaction") {
+          return;
+        }
 
-      this.handleReaction(roomId, event);
-    });
-    this.#client.on(
-      "room.failed_decryption",
-      (roomId: string, event: MatrixEvent, error: unknown) => {
-        this.#errorHandler?.(
-          new MatrixDecryptionError(roomId, event.event_id, { cause: error }),
-        );
-      },
-    );
+        this.handleReaction(roomId, event);
+      });
+      client.on(
+        "room.failed_decryption",
+        (roomId: string, event: MatrixEvent, error: unknown) => {
+          this.#errorHandler?.(
+            new MatrixDecryptionError(roomId, event.event_id, { cause: error }),
+          );
+        },
+      );
 
-    try {
       LogService.setLogger(createSyncFilterLogger(createMatrixLogger()));
-      await this.#client.start();
+      await client.start();
 
       let crossSignResult: CrossSignResult | undefined;
       if (cryptoProvider && this.#config.selfCrossSign !== false) {
@@ -248,31 +237,29 @@ export class MatrixProvider implements TransportProvider {
         cryptoProvider,
         crossSignResult,
       );
+      const rooms = await client.getJoinedRooms();
+      this.#joinedRooms = new Set(rooms);
+      await Promise.all(
+        rooms.map(async (roomId) => {
+          try {
+            const members = await client.getJoinedRoomMembers(roomId);
+            this.#roomMemberCount.set(roomId, members.length);
+          } catch {
+            // Cache miss can be filled on first message.
+          }
+        }),
+      );
+      this.#isConnected = true;
     } catch (error) {
+      this.stopClient(client);
       this.resetClientState();
       throw error;
     }
-
-    const rooms = await this.#client.getJoinedRooms();
-    this.#joinedRooms = new Set(rooms);
-    await Promise.all(
-      rooms.map(async (roomId) => {
-        try {
-          const members = await this.#client?.getJoinedRoomMembers(roomId);
-          if (members) {
-            this.#roomMemberCount.set(roomId, members.length);
-          }
-        } catch {
-          // Cache miss can be filled on first message.
-        }
-      }),
-    );
-    this.#isConnected = true;
   }
 
   disconnect(): Promise<void> {
     if (this.#client) {
-      this.#client.stop();
+      this.stopClient(this.#client);
     }
     this.resetClientState();
     return Promise.resolve();
@@ -727,7 +714,18 @@ export class MatrixProvider implements TransportProvider {
   }
 
   private handleReaction(roomId: string, event: MatrixEvent): void {
-    if (!this.#botUserId || event.sender === this.#botUserId) {
+    if (!this.#botUserId) {
+      return;
+    }
+
+    const skipReason = shouldSkipReactionEvent(
+      event,
+      this.#botUserId,
+      this.#connectedAt,
+      this.#joinedRooms,
+      roomId,
+    );
+    if (skipReason) {
       return;
     }
 
@@ -757,6 +755,14 @@ export class MatrixProvider implements TransportProvider {
       ?.getJoinedRoomMembers(roomId)
       .then((members) => this.#roomMemberCount.set(roomId, members.length))
       .catch(() => {});
+  }
+
+  private stopClient(client: MatrixClient): void {
+    try {
+      client.stop();
+    } catch {
+      // Matrix client may already be stopping.
+    }
   }
 
   private resetClientState(): void {
@@ -866,17 +872,19 @@ export function parseMatrixConfig(
 ): MatrixTransportConfig {
   const settings = config.settings ?? {};
   const homeserverUrl = settings.homeserverUrl;
-  const accessToken =
-    typeof settings.accessToken === "string" && settings.accessToken
-      ? settings.accessToken
-      : readAccessToken(stateDir);
+  if (typeof settings.accessToken === "string" && settings.accessToken) {
+    throw new MatrixConfigError(
+      "Matrix settings.accessToken is not supported; store the token in state/matrix-access-token.txt with chmod 600",
+    );
+  }
+  const accessToken = readAccessToken(stateDir);
 
   if (typeof homeserverUrl !== "string" || !homeserverUrl) {
     throw new MatrixConfigError("Matrix settings.homeserverUrl is required");
   }
   if (!accessToken) {
     throw new MatrixConfigError(
-      "Matrix access token is required: set settings.accessToken or create state/matrix-access-token.txt with chmod 600",
+      "Matrix access token is required: run setup/configure or create state/matrix-access-token.txt with chmod 600",
     );
   }
 

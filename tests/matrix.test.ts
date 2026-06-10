@@ -24,23 +24,41 @@ afterEach(async () => {
   tempDirs.length = 0;
 });
 
-test("parses Matrix transport settings", () => {
+test("parses Matrix transport settings with token from state file", async () => {
+  const stateDir = await tempStateDir();
+  await writeFile(join(stateDir, "matrix-access-token.txt"), "token\n");
+  await chmod(join(stateDir, "matrix-access-token.txt"), 0o600);
+
   expect(
-    parseMatrixConfig({
-      enabled: true,
-      settings: {
-        homeserverUrl: "https://matrix.example",
-        accessToken: "token",
-        encryption: true,
-        selfCrossSign: "reset",
+    parseMatrixConfig(
+      {
+        enabled: true,
+        settings: {
+          homeserverUrl: "https://matrix.example",
+          encryption: true,
+          selfCrossSign: "reset",
+        },
       },
-    }),
+      stateDir,
+    ),
   ).toEqual({
     homeserverUrl: "https://matrix.example",
     accessToken: "token",
     encryption: true,
     selfCrossSign: "reset",
   });
+});
+
+test("rejects Matrix access tokens in config settings", () => {
+  expect(() =>
+    parseMatrixConfig({
+      enabled: true,
+      settings: {
+        homeserverUrl: "https://matrix.example",
+        accessToken: "token",
+      },
+    }),
+  ).toThrow(MatrixConfigError);
 });
 
 test("rejects Matrix config without homeserver or token", () => {
@@ -74,7 +92,11 @@ test("parses Matrix access token from state file", async () => {
   });
 });
 
-test("default registry creates Matrix transport", () => {
+test("default registry creates Matrix transport", async () => {
+  const stateDir = await tempStateDir();
+  await writeFile(join(stateDir, "matrix-access-token.txt"), "token\n");
+  await chmod(join(stateDir, "matrix-access-token.txt"), 0o600);
+
   const transports = createConfiguredTransports(
     {
       transports: {
@@ -82,12 +104,11 @@ test("default registry creates Matrix transport", () => {
           enabled: true,
           settings: {
             homeserverUrl: "https://matrix.example",
-            accessToken: "token",
           },
         },
       },
     },
-    { stateDir: "/state" },
+    { stateDir },
   );
 
   expect(transports).toHaveLength(1);

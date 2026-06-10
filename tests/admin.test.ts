@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
@@ -40,12 +40,17 @@ test("configures transport settings", async () => {
         enabled: true,
         settings: {
           homeserverUrl: "https://matrix.example",
-          accessToken: "secret",
           encryption: false,
         },
       },
     },
   });
+  await expect(
+    readFile(join(stateDir, "matrix-access-token.txt"), "utf8"),
+  ).resolves.toBe("secret");
+  expect(
+    (await stat(join(stateDir, "matrix-access-token.txt"))).mode & 0o777,
+  ).toBe(0o600);
 });
 
 test("prints status without setting values", async () => {
@@ -70,7 +75,7 @@ test("prints status without setting values", async () => {
 
   expect(exitCode).toBe(0);
   expect(output.text()).toContain(
-    "matrix: enabled, unavailable, settings: accessToken",
+    "matrix: enabled, unavailable, settings: none",
   );
   expect(output.text()).not.toContain("secret");
 });

@@ -1,3 +1,5 @@
+import { chmod, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Writable } from "node:stream";
 import {
   type GatewayConfig,
@@ -116,9 +118,17 @@ async function configureTransport(
 
   const config = await loadGatewayConfig(stateDir);
   const current = config.transports[transport] ?? {};
-  const settings = { ...(current.settings ?? {}) };
+  const { accessToken: _legacyAccessToken, ...restSettings } =
+    current.settings ?? {};
+  void _legacyAccessToken;
+  const settings = { ...restSettings };
+  let matrixAccessToken: string | undefined;
 
   for (const setting of parsed.settings) {
+    if (transport === "matrix" && setting.key === "accessToken") {
+      matrixAccessToken = String(setting.value);
+      continue;
+    }
     settings[setting.key] = setting.value;
   }
 
@@ -129,6 +139,12 @@ async function configureTransport(
   });
 
   await saveGatewayConfig(stateDir, config);
+  if (matrixAccessToken !== undefined) {
+    await writeSecret(
+      join(stateDir, "matrix-access-token.txt"),
+      matrixAccessToken,
+    );
+  }
   output.write(`Configured ${transport} in ${stateDir}\n`);
   return 0;
 }
@@ -262,6 +278,11 @@ function compactTransportConfig(config: TransportConfig): TransportConfig {
       ? { settings: config.settings }
       : {}),
   };
+}
+
+async function writeSecret(path: string, value: string): Promise<void> {
+  await writeFile(path, value, { mode: 0o600 });
+  await chmod(path, 0o600);
 }
 
 function adminUsage(): string {

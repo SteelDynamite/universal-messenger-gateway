@@ -478,6 +478,14 @@ runMatrixSmoke(
         },
       ],
     });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(
+      accountB.messages.filter(
+        (message) =>
+          message.chatId === formattedRoomId &&
+          message.attachments?.[0]?.mediaId === attachmentMediaId,
+      ),
+    ).toHaveLength(1);
 
     const groupRoomId = await controlClient.createRoom({
       preset: "private_chat",
@@ -687,7 +695,7 @@ async function connectAdminConfiguredParticipant(
     }),
   ).toBe(0);
   expect(statusOutput.text()).toContain("matrix: enabled");
-  expect(statusOutput.text()).toContain("accessToken");
+  expect(statusOutput.text()).not.toContain("accessToken");
   expect(statusOutput.text()).not.toContain(account.accessToken);
   if (account.accountPassword) {
     expect(statusOutput.text()).not.toContain(account.accountPassword);
