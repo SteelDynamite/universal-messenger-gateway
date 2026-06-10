@@ -107,6 +107,7 @@ Updates [Phase 2 — Connect an agent](phase-2-connect-an-agent.md): pi-bot shou
 ## Done
 
 - UMG exports stable `createGateway(options?: CreateGatewayOptions)` and `CreateGatewayOptions` from `src/index.ts`.
+- Gateway JSON-lines mode emits `command_error` events when outbound commands fail instead of crashing.
 - `npm run build` generates `dist/index.d.ts` with `createGateway`.
 - pi-bot imports the factory without touching `TransportManager`.
 - `onEvent` and `onError` return unsubscribe functions.

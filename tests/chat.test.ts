@@ -73,6 +73,24 @@ test("sends typed lines to the selected target", async () => {
   expect(matrix.isConnected).toBe(false);
 });
 
+test("reports send failures without exiting", async () => {
+  const matrix = new FakeTransport("matrix");
+  matrix.sendMessageError = new Error("M_FORBIDDEN");
+  const manager = new TransportManager([matrix]);
+  const output = collectOutput();
+
+  const exitCode = await runChatCli({
+    input: scriptedInput("/target matrix room\nhello\n/quit\n"),
+    output,
+    errorOutput: collectOutput(),
+    manager,
+  });
+
+  expect(exitCode).toBe(0);
+  expect(matrix.sentMessages).toEqual([]);
+  expect(output.text()).toContain("M_FORBIDDEN");
+});
+
 test("interactive input edits at the cursor", async () => {
   const matrix = new FakeTransport("matrix");
   const manager = new TransportManager([matrix]);
@@ -366,6 +384,7 @@ class FakeTransport implements TransportProvider {
   invites: TransportInvite[] = [];
   healthChecks: TransportHealth[] = [];
   sentMessages: Array<{ chatId: string; text: string }> = [];
+  sendMessageError: Error | undefined;
   leftChats: string[] = [];
   leaveReasons: Array<string | undefined> = [];
   acceptedInvites: string[] = [];
@@ -398,6 +417,9 @@ class FakeTransport implements TransportProvider {
   }
 
   async sendMessage(chatId: string, text: string): Promise<void> {
+    if (this.sendMessageError) {
+      throw this.sendMessageError;
+    }
     this.sentMessages.push({ chatId, text });
   }
 

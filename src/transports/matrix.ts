@@ -212,7 +212,10 @@ export class MatrixProvider implements TransportProvider {
         return;
       }
 
-      if (event.type === "m.room.message" && event.content?.msgtype !== "m.text") {
+      if (
+        event.type === "m.room.message" &&
+        event.content?.msgtype !== "m.text"
+      ) {
         void this.handleMessage(roomId, event).catch((error: unknown) => {
           this.#errorHandler?.(error);
         });

@@ -30,7 +30,8 @@ public operating modes and lists all known transports with support status.
 are enabled, chat starts in configuration mode instead of claiming to be connected. Chat
 accepts `/configure`, `/connect`, and `/disconnect` with the same syntax as the top-level
 admin commands and reloads transports live after successful changes. Gateway accepts the
-same operations as JSON-lines admin commands and emits `admin_result` events.
+same operations as JSON-lines admin commands, emits `admin_result` events, and
+emits `command_error` events when outbound commands fail.
 
 ## Admin surface
 
@@ -56,6 +57,7 @@ process-lifetime problem appears.
 
 The cli round-trips real encrypted Matrix messages with no bot involved. The live Matrix
 smoke test covers the gateway JSON-lines command/event path and the admin cli flow.
+Gateway mode disconnects transports on stdin EOF.
 
 Related: 
 [0001](../decisions/0001-extract-transport-layer-as-a-standalone-gateway.md),

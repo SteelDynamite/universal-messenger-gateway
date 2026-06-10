@@ -31,6 +31,41 @@ test("passes valid commands to the gateway handler", async () => {
   ]);
 });
 
+test("emits command errors without stopping the stream", async () => {
+  const input = Readable.from([
+    '{"type":"send_message","transport":"matrix","chatId":"room","text":"hello"}\n{"type":"send_typing","transport":"matrix","chatId":"room"}\n',
+  ]);
+  const errorOutput = sink();
+  const events = [];
+  const commands = [];
+
+  const exitCode = await runGatewayStdio({
+    input,
+    errorOutput,
+    handleCommand(command) {
+      commands.push(command.type);
+      if (command.type === "send_message") {
+        throw new Error("send failed");
+      }
+    },
+    handleCommandError(_command, event) {
+      events.push(event);
+    },
+  });
+
+  expect(exitCode).toBe(0);
+  expect(commands).toEqual(["send_message", "send_typing"]);
+  expect(events).toEqual([
+    {
+      type: "command_error",
+      command: "send_message",
+      transport: "matrix",
+      chatId: "room",
+      error: "send failed",
+    },
+  ]);
+});
+
 test("rejects invalid commands without stopping the stream", async () => {
   const input = Readable.from([
     '{"type":"unknown"}\n{"type":"send_typing","transport":"matrix","chatId":"room"}\n',

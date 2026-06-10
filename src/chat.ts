@@ -3,6 +3,7 @@ import type { Readable, Writable } from "node:stream";
 import { type GatewayClient, ManagerGatewayClient } from "./gateway-client.js";
 import {
   type GatewayCommand,
+  type GatewayEvent,
   type TransportName,
   isTransportName,
 } from "./protocol.js";
@@ -570,6 +571,11 @@ function registerGatewayClientHandlers({
       refreshPrompt();
       return;
     }
+    if (event.type === "command_error") {
+      write(commandErrorText(event));
+      refreshPrompt();
+      return;
+    }
     if (event.type === "reaction") {
       return;
     }
@@ -606,6 +612,17 @@ function registerGatewayClientHandlers({
 
     writeError(`Transport error from ${transport}: ${String(error)}\n`);
   });
+}
+
+function commandErrorText(
+  event: Extract<GatewayEvent, { type: "command_error" }>,
+): string {
+  const target = [event.transport, event.chatId, event.messageId]
+    .filter((value) => value !== undefined)
+    .join(" ");
+  return target
+    ? `Command failed (${event.command} ${target}): ${event.error}\n`
+    : `Command failed (${event.command}): ${event.error}\n`;
 }
 
 function asMatrixDecryptionError(
@@ -655,11 +672,11 @@ async function handleInputLine(
       `[${context.state.currentTarget.transport} ${context.state.currentTarget.chatId}] me: ${inputLine}\n`,
     );
   } catch (error) {
-    if (error instanceof UnknownTransportError) {
-      context.write(`Transport is not configured: ${error.transport}\n`);
-    } else {
-      throw error;
-    }
+    writeTransportActionError(
+      error,
+      context.state.currentTarget.transport,
+      context,
+    );
   }
 
   return false;
@@ -712,7 +729,16 @@ async function runAdminSlashCommand(
     return;
   }
 
-  await context.client.send(gatewayCommand);
+  try {
+    await context.client.send(gatewayCommand);
+  } catch (error) {
+    writeTransportActionError(
+      error,
+      "transport" in gatewayCommand ? gatewayCommand.transport : "matrix",
+      context,
+    );
+    return;
+  }
 
   if (
     context.state.currentTarget &&

@@ -174,7 +174,13 @@ describe("shouldSkipEvent", () => {
   it("accepts supported media messages", () => {
     expect(
       shouldSkipEvent(
-        makeEvent({ content: { msgtype: "m.image", body: "photo.png", url: "mxc://example/photo" } }),
+        makeEvent({
+          content: {
+            msgtype: "m.image",
+            body: "photo.png",
+            url: "mxc://example/photo",
+          },
+        }),
         botUserId,
         connectedAt,
         joinedRooms,
@@ -260,7 +266,9 @@ describe("mediaAttachmentFromMatrixContent", () => {
   });
 
   it("ignores non-media content", () => {
-    expect(mediaAttachmentFromMatrixContent({ msgtype: "m.text", body: "hello" })).toBeUndefined();
+    expect(
+      mediaAttachmentFromMatrixContent({ msgtype: "m.text", body: "hello" }),
+    ).toBeUndefined();
   });
 });
 

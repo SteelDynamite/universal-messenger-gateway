@@ -105,7 +105,9 @@ export function shouldSkipEvent(
   return null;
 }
 
-export function mediaAttachmentFromMatrixContent(content: MatrixRoomEvent["content"]): MediaAttachment | undefined {
+export function mediaAttachmentFromMatrixContent(
+  content: MatrixRoomEvent["content"],
+): MediaAttachment | undefined {
   if (!content?.msgtype) {
     return undefined;
   }
@@ -123,20 +125,28 @@ export function mediaAttachmentFromMatrixContent(content: MatrixRoomEvent["conte
   return {
     mediaId,
     kind,
-    ...(content.body ? { fileName: content.body, description: content.body } : {}),
+    ...(content.body
+      ? { fileName: content.body, description: content.body }
+      : {}),
     ...(content.info?.mimetype ? { mimeType: content.info.mimetype } : {}),
-    ...(typeof content.info?.size === "number" ? { sizeBytes: content.info.size } : {}),
+    ...(typeof content.info?.size === "number"
+      ? { sizeBytes: content.info.size }
+      : {}),
   };
 }
 
-function isSupportedMessageContent(content: NonNullable<MatrixRoomEvent["content"]>): boolean {
+function isSupportedMessageContent(
+  content: NonNullable<MatrixRoomEvent["content"]>,
+): boolean {
   if (content.msgtype === "m.text") {
     return !!content.body;
   }
   return !!mediaAttachmentFromMatrixContent(content);
 }
 
-function mediaKindForMatrixMsgType(msgtype: string): MediaAttachment["kind"] | undefined {
+function mediaKindForMatrixMsgType(
+  msgtype: string,
+): MediaAttachment["kind"] | undefined {
   if (msgtype === "m.image") return "image";
   if (msgtype === "m.file") return "file";
   if (msgtype === "m.audio") return "audio";

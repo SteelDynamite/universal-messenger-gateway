@@ -123,6 +123,14 @@ export type GatewayEvent =
       command: GatewayCommand["type"];
       ok: boolean;
       output: string;
+    }
+  | {
+      type: "command_error";
+      command: GatewayCommand["type"];
+      error: string;
+      transport?: TransportName;
+      chatId?: string;
+      messageId?: string;
     };
 
 export function isGatewayCommand(value: unknown): value is GatewayCommand {

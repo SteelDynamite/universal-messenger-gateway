@@ -9,10 +9,7 @@ import { TRANSPORT_NAMES, type TransportName } from "./protocol.js";
 import { createConfiguredTransportList } from "./runtime.js";
 import { runSetupCli } from "./setup.js";
 import { resolveStateDir } from "./state.js";
-import {
-  TransportManager,
-  UnknownTransportError,
-} from "./transports/manager.js";
+import { TransportManager } from "./transports/manager.js";
 
 const [command, subcommand] = process.argv.slice(2);
 
@@ -31,7 +28,7 @@ if (
 
   const client = new ManagerGatewayClient({ manager, stateDir });
   client.onEvent((event) => {
-    void writeJsonLine(process.stdout, event);
+    void writeGatewayEvent(event);
   });
   client.onError((transport, error) => {
     process.stderr.write(
@@ -41,26 +38,23 @@ if (
 
   await client.connect();
 
-  const exitCode = await runGatewayStdio({
-    input: process.stdin,
-    errorOutput: process.stderr,
-    async handleCommand(receivedCommand) {
-      try {
-        await client.send(receivedCommand);
-      } catch (error) {
-        if (error instanceof UnknownTransportError) {
-          process.stderr.write(
-            `Transport is not configured: ${error.transport} (${stateDir})\n`,
-          );
-          return;
-        }
-
-        throw error;
-      }
-    },
-  });
-
-  process.exitCode = exitCode;
+  let exitCode = 0;
+  try {
+    exitCode = await runGatewayStdio({
+      input: process.stdin,
+      errorOutput: process.stderr,
+      handleCommand: (receivedCommand) => client.send(receivedCommand),
+      handleCommandError: (_receivedCommand, event) => writeGatewayEvent(event),
+    });
+  } finally {
+    try {
+      await client.disconnect();
+    } catch (error) {
+      process.stderr.write(`Gateway disconnect failed: ${String(error)}\n`);
+      process.exitCode = 1;
+    }
+  }
+  process.exitCode ??= exitCode;
 } else if (command === "chat") {
   const stateDir = resolveStateDir();
   const config = await loadGatewayConfig(stateDir);
@@ -131,6 +125,28 @@ function usage(): string {
 
 function transportStatus(transport: TransportName): string {
   return transport === "matrix" ? "available" : "planned";
+}
+
+async function writeGatewayEvent(event: unknown): Promise<void> {
+  try {
+    await writeJsonLine(process.stdout, event);
+  } catch (error) {
+    if (isBrokenPipe(error)) {
+      process.exitCode = 1;
+      return;
+    }
+    process.stderr.write(`Could not write gateway event: ${String(error)}\n`);
+    process.exitCode = 1;
+  }
+}
+
+function isBrokenPipe(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "EPIPE"
+  );
 }
 
 function hardExit(exitCode: number): never {

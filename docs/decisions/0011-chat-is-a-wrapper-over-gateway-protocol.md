@@ -20,5 +20,7 @@ or config layer directly except through a shared in-process gateway client abstr
 - Chat cannot gain capabilities that gateway lacks.
 - Future tests should verify chat behavior through gateway commands/events, not duplicate
   transport-manager paths.
+- Failed outbound commands should surface as gateway events or chat-visible errors, not
+  process crashes.
 - The first implementation may be in-process. A child-process gateway can be considered
   later if process isolation matters.

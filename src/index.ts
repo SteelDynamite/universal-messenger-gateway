@@ -40,7 +40,11 @@ export {
   isTransportName,
   TRANSPORT_NAMES,
 } from "./protocol.js";
-export { runGatewayStdio, type GatewayCommandHandler } from "./gateway.js";
+export {
+  runGatewayStdio,
+  type GatewayCommandErrorHandler,
+  type GatewayCommandHandler,
+} from "./gateway.js";
 export { resolveStateDir, STATE_DIR_ENV } from "./state.js";
 export {
   DuplicateTransportError,

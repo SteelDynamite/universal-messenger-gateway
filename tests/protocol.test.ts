@@ -98,6 +98,18 @@ test("models gateway admin result events", () => {
   expect(event.ok).toBe(true);
 });
 
+test("models gateway command error events", () => {
+  const event = {
+    type: "command_error",
+    command: "send_message",
+    transport: "matrix",
+    chatId: "!room:example.org",
+    error: "M_FORBIDDEN",
+  } satisfies GatewayEvent;
+
+  expect(event.error).toBe("M_FORBIDDEN");
+});
+
 test("models inbound reaction events", () => {
   const event = {
     type: "reaction",
