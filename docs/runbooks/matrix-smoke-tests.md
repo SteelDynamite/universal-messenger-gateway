@@ -59,6 +59,8 @@ UMG_MATRIX_A_RECOVERY_KEY='word1 word2 word3 ...'
 - Account A sends threaded text through the gateway command path.
 - Account B sends text that is serialized through the gateway JSON-lines event path.
 - Account A sends formatted text in an unencrypted room; Matrix receives the formatted body.
+- That room is upgraded to encryption; both directions still receive normalized text and raw
+  Matrix events are encrypted.
 - Accounts A, B, and C join an encrypted group room; Account A receives a normalized mention
   with `isGroupChat` and `wasMentioned` set.
 - Account B leaves explicitly.

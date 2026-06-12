@@ -20,8 +20,8 @@ editing and not a simple post-join timing race.
 
 ## Fix
 
-The smoke test now uses account passwords, when present, to password-login each smoke account
-with a fresh per-run device and a fresh per-run state directory. Access-token-only smoke config
+The UMG and pi-bot smoke tests use account passwords, when present, to password-login smoke
+accounts with fresh per-run devices and fresh per-run state directories. Access-token-only smoke config
 still works as a fallback, but may reproduce stale-device E2EE failures.
 
 `UMG_MATRIX_DEBUG_ROOM_KEYS=1` enables credential-safe room-key diagnostics for future failures.

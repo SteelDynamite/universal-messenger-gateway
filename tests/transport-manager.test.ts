@@ -220,7 +220,9 @@ class FakeTransport implements TransportProvider {
   acceptedInvites: string[] = [];
   readonly #messageHandlers = new Set<(message: InboundMessage) => void>();
   readonly #reactionHandlers = new Set<(reaction: InboundReaction) => void>();
-  readonly #inviteHandlers = new Set<(invite: { inviteId: string; inviter?: string }) => void>();
+  readonly #inviteHandlers = new Set<
+    (invite: { inviteId: string; inviter?: string }) => void
+  >();
   readonly #errorHandlers = new Set<(error: unknown) => void>();
 
   constructor(readonly type: TransportProvider["type"]) {}
@@ -271,7 +273,9 @@ class FakeTransport implements TransportProvider {
     this.#reactionHandlers.add(handler);
   }
 
-  onInvite(handler: (invite: { inviteId: string; inviter?: string }) => void): void {
+  onInvite(
+    handler: (invite: { inviteId: string; inviter?: string }) => void,
+  ): void {
     this.#inviteHandlers.add(handler);
   }
 

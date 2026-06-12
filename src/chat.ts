@@ -580,7 +580,8 @@ function registerGatewayClientHandlers({
       return;
     }
     if (event.type === "invite") {
-      const invites = state.knownInvites.get(event.invite.transport) ?? new Map();
+      const invites =
+        state.knownInvites.get(event.invite.transport) ?? new Map();
       invites.set(event.invite.inviteId, event.invite.displayName);
       state.knownInvites.set(event.invite.transport, invites);
       write(
@@ -627,7 +628,12 @@ function registerGatewayClientHandlers({
 function commandErrorText(
   event: Extract<GatewayEvent, { type: "command_error" }>,
 ): string {
-  const target = [event.transport, event.chatId, event.messageId, event.inviteId]
+  const target = [
+    event.transport,
+    event.chatId,
+    event.messageId,
+    event.inviteId,
+  ]
     .filter((value) => value !== undefined)
     .join(" ");
   return target

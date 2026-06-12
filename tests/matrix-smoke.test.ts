@@ -495,6 +495,63 @@ runMatrixSmoke(
       ),
     ).toHaveLength(1);
 
+    await controlClient.sendStateEvent(
+      formattedRoomId,
+      "m.room.encryption",
+      "",
+      { algorithm: "m.megolm.v1.aes-sha2" },
+    );
+
+    const transitionMessageFromB = `umg smoke encrypted-after-transition b->a ${runId}`;
+    const receivedTransitionByA = waitForMessage(
+      accountA,
+      (message) =>
+        message.chatId === formattedRoomId &&
+        message.content === transitionMessageFromB,
+    );
+    await accountB.provider.sendMessage(
+      formattedRoomId,
+      transitionMessageFromB,
+    );
+    const transitionMessageAtA = await receivedTransitionByA;
+    expect(transitionMessageAtA).toMatchObject({
+      transport: "matrix",
+      chatId: formattedRoomId,
+      content: transitionMessageFromB,
+    });
+    expect(
+      await rawMatrixEventType(
+        controlClient,
+        formattedRoomId,
+        requiredMessageId(transitionMessageAtA),
+      ),
+    ).toBe("m.room.encrypted");
+
+    const transitionMessageFromA = `umg smoke encrypted-after-transition a->b ${runId}`;
+    const receivedTransitionByB = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === formattedRoomId &&
+        message.content === transitionMessageFromA,
+    );
+    await accountA.provider.sendMessage(
+      formattedRoomId,
+      transitionMessageFromA,
+    );
+    const transitionMessageAtB = await receivedTransitionByB;
+    expect(transitionMessageAtB).toMatchObject({
+      transport: "matrix",
+      chatId: formattedRoomId,
+      content: transitionMessageFromA,
+    });
+    expect(
+      await rawMatrixEventType(
+        controlClient,
+        formattedRoomId,
+        requiredMessageId(transitionMessageAtB),
+      ),
+    ).toBe("m.room.encrypted");
+
     const groupRoomId = await controlClient.createRoom({
       preset: "private_chat",
       visibility: "private",
@@ -822,6 +879,17 @@ function requiredMessageId(message: InboundMessage): string {
   }
 
   return message.messageId;
+}
+
+async function rawMatrixEventType(
+  client: MatrixClient,
+  roomId: string,
+  eventId: string,
+): Promise<string | undefined> {
+  const event = (await client.getRawEvent(roomId, eventId)) as {
+    type?: string;
+  };
+  return event.type;
 }
 
 function expectNoUnexpectedErrors(participant: SmokeParticipant): void {

@@ -49,7 +49,9 @@ export class TransportManager {
 
     this.transports.set(transport.type, transport);
     transport.onMessage((message) => this.emitMessage(transport.type, message));
-    transport.onReaction?.((reaction) => this.emitReaction(transport.type, reaction));
+    transport.onReaction?.((reaction) =>
+      this.emitReaction(transport.type, reaction),
+    );
     transport.onInvite?.((invite) => this.emitInvite(transport.type, invite));
     transport.onError((error) => this.emitError(transport.type, error));
   }
@@ -154,7 +156,10 @@ export class TransportManager {
     }
   }
 
-  private emitReaction(transport: TransportName, reaction: InboundReaction): void {
+  private emitReaction(
+    transport: TransportName,
+    reaction: InboundReaction,
+  ): void {
     for (const handler of this.#reactionHandlers) {
       handler({ ...reaction, transport });
     }

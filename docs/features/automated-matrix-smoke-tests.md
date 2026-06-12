@@ -43,8 +43,9 @@ multi-account smoke test should catch these regressions before they reach manual
 14. Account A sends threaded text through the gateway command path.
 15. Account B sends a message serialized through the gateway JSON-lines event path.
 16. Account A sends formatted text in an unencrypted room.
-17. Accounts A, B, and C verify encrypted group mention normalization.
-18. Account B leaves with a reason.
+17. That room is upgraded to encryption and both directions still round-trip.
+18. Accounts A, B, and C verify encrypted group mention normalization.
+19. Account B leaves with a reason.
 
 ## Current Runner
 
@@ -52,8 +53,9 @@ The smoke test lives in `tests/matrix-smoke.test.ts` and runs through Vitest wit
 `npm run test:matrix-smoke`. It is skipped unless `UMG_MATRIX_SMOKE=1` is set. It covers
 explicit invite metadata, invite accept/reject, encrypted A-to-B/B-to-A round trips, reply
 context, thread context, reaction events, gateway JSON-lines command/event flow, typing command dispatch,
-formatted unencrypted Matrix message bodies, encrypted group mention normalization, explicit
-leave, process-exit shutdown, absence of transport errors, and the config-oriented admin cli
+formatted unencrypted Matrix message bodies, unencrypted-to-encrypted room upgrades,
+encrypted group mention normalization, explicit leave, process-exit shutdown, absence of
+transport errors, and the config-oriented admin cli
 `configure`/`connect`/`disconnect`/`status` flow. See
 [Matrix smoke tests](../runbooks/matrix-smoke-tests.md) for required environment variables.
 
