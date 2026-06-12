@@ -68,6 +68,7 @@ export class ManagerGatewayClient implements GatewayClient {
     options.manager.onReaction((reaction) =>
       this.#emit({ type: "reaction", reaction }),
     );
+    options.manager.onInvite((invite) => this.#emit({ type: "invite", invite }));
     options.manager.onError((transport, error) => {
       for (const handler of this.#errorHandlers) {
         handler(transport, error);

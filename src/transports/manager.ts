@@ -1,13 +1,15 @@
 import type {
   GatewayCommand,
+  InboundInvite,
   InboundMessage,
   InboundReaction,
   TransportName,
 } from "../protocol.js";
-import type { TransportProvider } from "./interface.js";
+import type { TransportInvite, TransportProvider } from "./interface.js";
 
 export type GatewayMessageHandler = (message: InboundMessage) => void;
 export type GatewayReactionHandler = (reaction: InboundReaction) => void;
+export type GatewayInviteHandler = (invite: InboundInvite) => void;
 export type GatewayTransportErrorHandler = (
   transport: TransportName,
   error: unknown,
@@ -31,6 +33,7 @@ export class TransportManager {
   readonly transports = new Map<TransportName, TransportProvider>();
   readonly #messageHandlers = new Set<GatewayMessageHandler>();
   readonly #reactionHandlers = new Set<GatewayReactionHandler>();
+  readonly #inviteHandlers = new Set<GatewayInviteHandler>();
   readonly #errorHandlers = new Set<GatewayTransportErrorHandler>();
 
   constructor(transports: Iterable<TransportProvider> = []) {
@@ -45,8 +48,9 @@ export class TransportManager {
     }
 
     this.transports.set(transport.type, transport);
-    transport.onMessage((message) => this.emitMessage(message));
-    transport.onReaction?.((reaction) => this.emitReaction(reaction));
+    transport.onMessage((message) => this.emitMessage(transport.type, message));
+    transport.onReaction?.((reaction) => this.emitReaction(transport.type, reaction));
+    transport.onInvite?.((invite) => this.emitInvite(transport.type, invite));
     transport.onError((error) => this.emitError(transport.type, error));
   }
 
@@ -56,6 +60,10 @@ export class TransportManager {
 
   onReaction(handler: GatewayReactionHandler): void {
     this.#reactionHandlers.add(handler);
+  }
+
+  onInvite(handler: GatewayInviteHandler): void {
+    this.#inviteHandlers.add(handler);
   }
 
   onError(handler: GatewayTransportErrorHandler): void {
@@ -117,6 +125,16 @@ export class TransportManager {
         await transport.sendTyping(command.chatId);
         break;
       }
+      case "accept_invite": {
+        const transport = this.getTransport(command.transport);
+        if (!transport.acceptInvite) {
+          throw new Error(
+            `Transport does not support accepting invites: ${transport.type}`,
+          );
+        }
+        await transport.acceptInvite(command.inviteId);
+        break;
+      }
     }
   }
 
@@ -130,15 +148,26 @@ export class TransportManager {
     return transport;
   }
 
-  private emitMessage(message: InboundMessage): void {
+  private emitMessage(transport: TransportName, message: InboundMessage): void {
     for (const handler of this.#messageHandlers) {
-      handler(message);
+      handler({ ...message, transport });
     }
   }
 
-  private emitReaction(reaction: InboundReaction): void {
+  private emitReaction(transport: TransportName, reaction: InboundReaction): void {
     for (const handler of this.#reactionHandlers) {
-      handler(reaction);
+      handler({ ...reaction, transport });
+    }
+  }
+
+  private emitInvite(transport: TransportName, invite: TransportInvite): void {
+    for (const handler of this.#inviteHandlers) {
+      handler({
+        inviteId: invite.inviteId,
+        ...(invite.displayName ? { displayName: invite.displayName } : {}),
+        ...(invite.inviter ? { inviter: invite.inviter } : {}),
+        transport,
+      });
     }
   }
 

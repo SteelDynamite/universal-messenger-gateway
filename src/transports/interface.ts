@@ -7,6 +7,7 @@ import type {
 
 export type TransportMessageHandler = (message: InboundMessage) => void;
 export type TransportReactionHandler = (reaction: InboundReaction) => void;
+export type TransportInviteHandler = (invite: TransportInvite) => void;
 export type TransportErrorHandler = (error: unknown) => void;
 
 export type TransportChat = {
@@ -56,5 +57,6 @@ export interface TransportProvider {
   rejectInvite?(inviteId: string, reason?: string): Promise<void>;
   onMessage(handler: TransportMessageHandler): void;
   onReaction?(handler: TransportReactionHandler): void;
+  onInvite?(handler: TransportInviteHandler): void;
   onError(handler: TransportErrorHandler): void;
 }

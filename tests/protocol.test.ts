@@ -41,6 +41,20 @@ test("models inbound message events", () => {
   expect(event.message.attachments?.[0]?.kind).toBe("image");
 });
 
+test("models inbound invite events", () => {
+  const event = {
+    type: "invite",
+    invite: {
+      transport: "matrix",
+      inviteId: "!room:example.org",
+      displayName: "Project Room",
+      inviter: "@alice:example.org",
+    },
+  } satisfies GatewayEvent;
+
+  expect(event.invite.inviter).toBe("@alice:example.org");
+});
+
 test("models outbound gateway commands", () => {
   const commands = [
     {
@@ -66,9 +80,14 @@ test("models outbound gateway commands", () => {
       transport: "matrix",
       chatId: "!room:example.org",
     },
+    {
+      type: "accept_invite",
+      transport: "matrix",
+      inviteId: "!room:example.org",
+    },
   ] satisfies GatewayCommand[];
 
-  expect(commands).toHaveLength(3);
+  expect(commands).toHaveLength(4);
 });
 
 test("models gateway admin commands", () => {

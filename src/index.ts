@@ -24,8 +24,10 @@ export {
   saveGatewayConfig,
 } from "./config.js";
 export type {
+  AcceptInviteCommand,
   GatewayCommand,
   GatewayEvent,
+  InboundInvite,
   InboundMessage,
   InboundReaction,
   MessageReference,
@@ -50,6 +52,7 @@ export {
   DuplicateTransportError,
   TransportManager,
   UnknownTransportError,
+  type GatewayInviteHandler,
   type GatewayMessageHandler,
   type GatewayReactionHandler,
   type GatewayTransportErrorHandler,
@@ -60,6 +63,7 @@ export type {
   TransportHealth,
   TransportHealthStatus,
   TransportInvite,
+  TransportInviteHandler,
   TransportMessageHandler,
   TransportProvider,
   TransportReactionHandler,

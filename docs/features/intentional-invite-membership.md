@@ -19,6 +19,7 @@ testable invite behavior.
 
 - Disable Matrix autojoin.
 - Track pending invites per transport.
+- Emit normalized invite events to SDK/stdio consumers.
 - Add transport capabilities for `listInvites`, `acceptInvite`, and `rejectInvite`.
 - Surface pending invite counts in `/status`.
 - Add `/accept <transport> <invite>` and `/reject <transport> <invite>`.
@@ -33,9 +34,10 @@ testable invite behavior.
 
 ## Result
 
-`TransportProvider` exposes optional invite methods. Matrix tracks `room.invite` events and
-does not autojoin. `umg chat` exposes `/accept <transport> <invite>` and `/reject <transport>
-<invite> [reason]`, and `/status` shows pending invite counts.
+`TransportProvider` exposes optional invite methods. Matrix tracks `room.invite` events,
+emits normalized invite events, and does not autojoin by itself. `umg chat` exposes `/accept
+<transport> <invite>` and `/reject <transport> <invite> [reason]`, and `/status` shows
+pending invite counts.
 
 The live Matrix smoke test covers no-autojoin, explicit accept, encrypted round-trip after
 accept, and explicit reject without joining.

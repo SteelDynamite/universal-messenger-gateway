@@ -40,6 +40,7 @@ type SmokeParticipant = {
   provider: MatrixProvider;
   messages: InboundMessage[];
   reactions: InboundReaction[];
+  invites: TransportInvite[];
   errors: unknown[];
 };
 
@@ -213,6 +214,13 @@ runMatrixSmoke(
     roomsToLeave.push(roomId);
 
     await waitForChat(accountA.provider, roomId);
+    const inviteEventForB = await waitFor(() =>
+      accountB.invites.find((invite) => invite.inviteId === roomId),
+    );
+    expect(inviteEventForB).toMatchObject({
+      inviteId: roomId,
+      inviter: accountAUserId,
+    });
     const inviteForB = await waitForInvite(accountB.provider, roomId);
     expect(inviteForB).toMatchObject({
       inviteId: roomId,
@@ -616,6 +624,7 @@ async function connectParticipant(
     ),
     messages: [],
     reactions: [],
+    invites: [],
     errors: [],
   };
   participant.provider.onMessage((message) =>
@@ -624,6 +633,7 @@ async function connectParticipant(
   participant.provider.onReaction((reaction) =>
     participant.reactions.push(reaction),
   );
+  participant.provider.onInvite((invite) => participant.invites.push(invite));
   participant.provider.onError((error) => participant.errors.push(error));
 
   await participant.provider.connect();
@@ -726,6 +736,7 @@ function registerParticipant(provider: MatrixProvider): SmokeParticipant {
     provider,
     messages: [],
     reactions: [],
+    invites: [],
     errors: [],
   };
   participant.provider.onMessage((message) =>
@@ -734,6 +745,7 @@ function registerParticipant(provider: MatrixProvider): SmokeParticipant {
   participant.provider.onReaction((reaction) =>
     participant.reactions.push(reaction),
   );
+  participant.provider.onInvite((invite) => participant.invites.push(invite));
   participant.provider.onError((error) => participant.errors.push(error));
   return participant;
 }

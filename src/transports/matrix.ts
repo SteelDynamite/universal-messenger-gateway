@@ -124,6 +124,7 @@ export class MatrixProvider implements TransportProvider {
   #isConnected = false;
   #messageHandler?: (message: InboundMessage) => void;
   #reactionHandler?: (reaction: InboundReaction) => void;
+  #inviteHandler?: (invite: TransportInvite) => void;
   #errorHandler?: (error: unknown) => void;
   #botUserId: string | undefined;
   #joinedRooms = new Set<string>();
@@ -195,10 +196,12 @@ export class MatrixProvider implements TransportProvider {
         this.#roomMemberCount.delete(roomId);
       });
       client.on("room.invite", (roomId: string, event: MatrixInviteEvent) => {
-        this.#pendingInvites.set(roomId, {
+        const invite = {
           inviteId: roomId,
           ...inviteDetails(event),
-        });
+        };
+        this.#pendingInvites.set(roomId, invite);
+        this.#inviteHandler?.(invite);
       });
       client.on("room.message", (roomId: string, event: MatrixEvent) => {
         void this.handleMessage(roomId, event).catch((error: unknown) => {
@@ -381,6 +384,10 @@ export class MatrixProvider implements TransportProvider {
 
   onReaction(handler: (reaction: InboundReaction) => void): void {
     this.#reactionHandler = handler;
+  }
+
+  onInvite(handler: (invite: TransportInvite) => void): void {
+    this.#inviteHandler = handler;
   }
 
   onError(handler: (error: unknown) => void): void {

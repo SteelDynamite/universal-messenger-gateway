@@ -56,6 +56,13 @@ export type InboundReaction = {
   userId?: string;
 };
 
+export type InboundInvite = {
+  transport: TransportName;
+  inviteId: string;
+  displayName?: string;
+  inviter?: string;
+};
+
 export type SendMessageCommand = {
   type: "send_message";
   transport: TransportName;
@@ -77,6 +84,12 @@ export type SendTypingCommand = {
   type: "send_typing";
   transport: TransportName;
   chatId: string;
+};
+
+export type AcceptInviteCommand = {
+  type: "accept_invite";
+  transport: TransportName;
+  inviteId: string;
 };
 
 export type StatusCommand = {
@@ -104,6 +117,7 @@ export type GatewayCommand =
   | SendMessageCommand
   | SendReactionCommand
   | SendTypingCommand
+  | AcceptInviteCommand
   | StatusCommand
   | ConfigureTransportCommand
   | ConnectTransportCommand
@@ -119,6 +133,10 @@ export type GatewayEvent =
       reaction: InboundReaction;
     }
   | {
+      type: "invite";
+      invite: InboundInvite;
+    }
+  | {
       type: "admin_result";
       command: GatewayCommand["type"];
       ok: boolean;
@@ -131,6 +149,7 @@ export type GatewayEvent =
       transport?: TransportName;
       chatId?: string;
       messageId?: string;
+      inviteId?: string;
     };
 
 export function isGatewayCommand(value: unknown): value is GatewayCommand {
@@ -159,6 +178,14 @@ export function isGatewayCommand(value: unknown): value is GatewayCommand {
       typeof value.messageId === "string" &&
       typeof value.reaction === "string" &&
       value.reaction.length > 0
+    );
+  }
+
+  if (value.type === "accept_invite") {
+    return (
+      isTransportName(value.transport) &&
+      typeof value.inviteId === "string" &&
+      value.inviteId.length > 0
     );
   }
 

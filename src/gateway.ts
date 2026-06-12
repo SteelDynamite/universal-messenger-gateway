@@ -67,5 +67,6 @@ function commandErrorEvent(
     ...("transport" in command ? { transport: command.transport } : {}),
     ...("chatId" in command ? { chatId: command.chatId } : {}),
     ...("messageId" in command ? { messageId: command.messageId } : {}),
+    ...("inviteId" in command ? { inviteId: command.inviteId } : {}),
   };
 }

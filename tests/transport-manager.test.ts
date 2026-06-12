@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
 import type {
+  GatewayEvent,
+  InboundInvite,
   InboundMessage,
   InboundReaction,
   MessageReference,
@@ -7,6 +9,7 @@ import type {
 } from "../src/index.js";
 import {
   DuplicateTransportError,
+  ManagerGatewayClient,
   TransportManager,
   UnknownTransportError,
 } from "../src/index.js";
@@ -33,12 +36,18 @@ test("fans outbound commands to the selected transport", async () => {
     messageId: "$event",
     reaction: "+1",
   });
+  await manager.handleCommand({
+    type: "accept_invite",
+    transport: "matrix",
+    inviteId: "invite-room",
+  });
 
   expect(matrix.sentMessages).toEqual([{ chatId: "room", text: "hello" }]);
   expect(matrix.sentReactions).toEqual([
     { chatId: "room", messageId: "$event", reaction: "+1" },
   ]);
   expect(matrix.sentTyping).toEqual(["room"]);
+  expect(matrix.acceptedInvites).toEqual(["invite-room"]);
 });
 
 test("passes outbound reply and thread references to the selected transport", async () => {
@@ -80,7 +89,7 @@ test("fans inbound transport messages to gateway handlers", () => {
   manager.onMessage((message) => messages.push(message));
   matrix.emitMessage({
     chatId: "room",
-    transport: "matrix",
+    transport: "slack",
     content: "hello",
     timestamp: 1,
     isGroupChat: false,
@@ -107,7 +116,7 @@ test("fans inbound transport reactions to gateway handlers", () => {
   manager.onReaction((reaction) => reactions.push(reaction));
   matrix.emitReaction({
     chatId: "room",
-    transport: "matrix",
+    transport: "slack",
     messageId: "$event",
     reaction: "+1",
     timestamp: 1,
@@ -120,6 +129,44 @@ test("fans inbound transport reactions to gateway handlers", () => {
       messageId: "$event",
       reaction: "+1",
       timestamp: 1,
+    },
+  ]);
+});
+
+test("fans inbound transport invites to gateway handlers", () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+  const invites: InboundInvite[] = [];
+
+  manager.onInvite((invite) => invites.push(invite));
+  matrix.emitInvite({ inviteId: "invite-room", inviter: "@alice:example.org" });
+
+  expect(invites).toEqual([
+    {
+      transport: "matrix",
+      inviteId: "invite-room",
+      inviter: "@alice:example.org",
+    },
+  ]);
+});
+
+test("emits inbound invite events from the gateway client", () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+  const client = new ManagerGatewayClient({ manager });
+  const events: GatewayEvent[] = [];
+
+  client.onEvent((event) => events.push(event));
+  matrix.emitInvite({ inviteId: "invite-room", inviter: "@alice:example.org" });
+
+  expect(events).toEqual([
+    {
+      type: "invite",
+      invite: {
+        transport: "matrix",
+        inviteId: "invite-room",
+        inviter: "@alice:example.org",
+      },
     },
   ]);
 });
@@ -170,8 +217,10 @@ class FakeTransport implements TransportProvider {
     reaction: string;
   }> = [];
   sentTyping: string[] = [];
+  acceptedInvites: string[] = [];
   readonly #messageHandlers = new Set<(message: InboundMessage) => void>();
   readonly #reactionHandlers = new Set<(reaction: InboundReaction) => void>();
+  readonly #inviteHandlers = new Set<(invite: { inviteId: string; inviter?: string }) => void>();
   readonly #errorHandlers = new Set<(error: unknown) => void>();
 
   constructor(readonly type: TransportProvider["type"]) {}
@@ -210,12 +259,20 @@ class FakeTransport implements TransportProvider {
     this.sentTyping.push(chatId);
   }
 
+  async acceptInvite(inviteId: string): Promise<void> {
+    this.acceptedInvites.push(inviteId);
+  }
+
   onMessage(handler: (message: InboundMessage) => void): void {
     this.#messageHandlers.add(handler);
   }
 
   onReaction(handler: (reaction: InboundReaction) => void): void {
     this.#reactionHandlers.add(handler);
+  }
+
+  onInvite(handler: (invite: { inviteId: string; inviter?: string }) => void): void {
+    this.#inviteHandlers.add(handler);
   }
 
   onError(handler: (error: unknown) => void): void {
@@ -231,6 +288,12 @@ class FakeTransport implements TransportProvider {
   emitReaction(reaction: InboundReaction): void {
     for (const handler of this.#reactionHandlers) {
       handler(reaction);
+    }
+  }
+
+  emitInvite(invite: { inviteId: string; inviter?: string }): void {
+    for (const handler of this.#inviteHandlers) {
+      handler(invite);
     }
   }
 
