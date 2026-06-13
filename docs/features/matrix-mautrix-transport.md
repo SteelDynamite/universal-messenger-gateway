@@ -72,7 +72,9 @@ Do not start by patching `matrix-bot-sdk` unless this spike fails.
 - Done: process-exit shutdown clears connection state.
 - Done: mautrix decryption warnings are normalized to UMG errors.
 - Done: missing Megolm sessions wait briefly for same-sync room-key delivery, then request the room key from the sender device and retry before reporting a decryption error.
-- Done: `UMG_MATRIX_DEBUG_ROOM_KEYS=1` logs credential-safe E2EE diagnostics for key upload, sync callbacks, to-device room-key events, withheld keys, key requests, and decrypt failures.
+- Done: when `matrix-recovery-key.txt` or `UNIVERSAL_MESSENGER_GATEWAY_MATRIX_RECOVERY_KEY` is present, mautrix imports SSSS cross-signing secrets and self-signs the current device.
+- Done: Matrix E2EE health reports recovery-key, own identity trust, cross-signing identity, device signature, and own-device trust status.
+- Done: `UMG_MATRIX_DEBUG_ROOM_KEYS=1` logs credential-safe E2EE diagnostics for key upload, sync callbacks, to-device room-key events, withheld keys, key requests, decrypt failures, and cross-signing import.
 - Done: pi-bot-stack installs `requirements-mautrix.txt` into the runtime tool venv and verifies imports.
 - Done: `matrix-bot-sdk` and `request` are removed from production dependencies.
 - Decision: recovery-key import and cross-signing health are not required for the mautrix path; mautrix persists Olm/Megolm state in SQLite and smoke proves encrypted restart decrypt.

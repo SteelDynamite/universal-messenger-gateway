@@ -37,7 +37,7 @@ Optional variables:
 - `UMG_MATRIX_A_ACCOUNT_PASSWORD`, `UMG_MATRIX_B_ACCOUNT_PASSWORD`, and
   `UMG_MATRIX_C_ACCOUNT_PASSWORD`.
 - `UMG_MATRIX_MAUTRIX_PYTHON` — Python executable with `requirements-mautrix.txt` installed. In pi-bot-stack this is available through the runtime PATH; local development usually sets this to a venv Python.
-- `UMG_MATRIX_DEBUG_ROOM_KEYS=1` — logs credential-safe mautrix E2EE diagnostics: key upload, sync callbacks, to-device event types, room keys, withheld keys, key requests, and decrypt failures.
+- `UMG_MATRIX_DEBUG_ROOM_KEYS=1` — logs credential-safe mautrix E2EE diagnostics: key upload, sync callbacks, to-device event types, room keys, withheld keys, key requests, decrypt failures, and cross-signing import.
 
 ## Python mautrix setup
 

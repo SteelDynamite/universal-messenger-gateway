@@ -12,7 +12,9 @@ Current active state: mautrix Matrix adoption is implemented; an encrypted-DM re
 - `matrix-bot-sdk`, `@matrix-org/matrix-sdk-crypto-nodejs`, and `request` are removed from production dependencies. `matrix-bot-sdk` remains dev-only for smoke control clients.
 - Recovery-key import / cross-signing health are not required for the mautrix path; persistent encrypted restart decrypt is covered by live smoke.
 - Missing Megolm sessions now wait for same-sync room-key delivery, then request the room key from the sender device and retry before surfacing a Matrix decryption error.
-- `UMG_MATRIX_DEBUG_ROOM_KEYS=1` logs credential-safe E2EE diagnostics for key upload, sync callbacks, to-device events, room keys, withheld keys, key requests, and decrypt failures.
+- When `matrix-recovery-key.txt` or `UNIVERSAL_MESSENGER_GATEWAY_MATRIX_RECOVERY_KEY` is present, the sidecar imports SSSS cross-signing secrets and self-signs the current device.
+- Matrix E2EE health reports recovery-key, own identity trust, cross-signing identity, device signature, and own-device trust status.
+- `UMG_MATRIX_DEBUG_ROOM_KEYS=1` logs credential-safe E2EE diagnostics for key upload, sync callbacks, to-device events, room keys, withheld keys, key requests, decrypt failures, and cross-signing import.
 - Live smoke covers plaintext, formatted text, encrypted send/receive, replies, threads, reactions, typing command path, invites, reject, leave, media metadata, group mention/member count, gateway JSON-lines path, process-exit shutdown, and encrypted decrypt after sidecar restart with stable SQLite crypto DB.
 
 ## Carry-forward

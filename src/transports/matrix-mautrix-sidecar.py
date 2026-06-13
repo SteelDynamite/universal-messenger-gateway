@@ -153,6 +153,7 @@ class Sidecar:
         self.room_member_count: dict[str, int] = {}
         self.connected_at = 0
         self.state_dir: Path | None = None
+        self.cross_sign_status: dict[str, Any] = {"enabled": False}
 
     async def connect(self, command: dict[str, Any]) -> dict[str, Any]:
         state_dir = Path(str(command["stateDir"])).resolve()
@@ -229,6 +230,8 @@ class Sidecar:
             self.crypto_db = crypto_db
             self.crypto_store = crypto_store
             self.crypto = crypto
+            self.client = client
+            await self.verify_with_recovery_key()
 
         client.add_event_handler(EventType.ROOM_MESSAGE, self.handle_message)
         client.add_event_handler(EventType.REACTION, self.handle_reaction)
@@ -263,6 +266,7 @@ class Sidecar:
         self.pending_invites.clear()
         self.room_member_count.clear()
         self.state_dir = None
+        self.cross_sign_status = {"enabled": False}
 
     def register_debug_handlers(self, client: Client) -> None:
         if not DEBUG_ROOM_KEYS:
@@ -441,6 +445,82 @@ class Sidecar:
             }
         )
 
+    async def verify_with_recovery_key(self) -> None:
+        crypto = require_crypto(self.crypto)
+        recovery_key = read_recovery_key(self.state_dir)
+        self.cross_sign_status = await self.cross_sign_diagnostics("before")
+        if not recovery_key:
+            self.cross_sign_status = {
+                **self.cross_sign_status,
+                "recoveryKey": "missing",
+                "result": "skipped",
+                "reason": "matrix-recovery-key.txt not found or unreadable",
+            }
+            debug_event("cross_sign_skipped", **self.cross_sign_status)
+            return
+        try:
+            debug_event("cross_sign_recovery_import_start", device_id=str(require_client(self.client).device_id))
+            await crypto.verify_with_recovery_key(recovery_key)
+            self.cross_sign_status = await self.cross_sign_diagnostics("after")
+            self.cross_sign_status = {**self.cross_sign_status, "recoveryKey": "present", "result": "imported"}
+            debug_event("cross_sign_recovery_import_success", **self.cross_sign_status)
+        except Exception as error:
+            self.cross_sign_status = await self.cross_sign_diagnostics("after_error")
+            self.cross_sign_status = {
+                **self.cross_sign_status,
+                "recoveryKey": "present",
+                "result": "failed",
+                "reason": str(error),
+            }
+            debug_event("cross_sign_recovery_import_failed", **self.cross_sign_status)
+
+    async def cross_sign_diagnostics(self, phase: str) -> dict[str, Any]:
+        client = require_client(self.client)
+        crypto = require_crypto(self.crypto)
+        device_id = str(getattr(client, "device_id", ""))
+        diagnostics: dict[str, Any] = {
+            "enabled": True,
+            "phase": phase,
+            "deviceId": device_id,
+            "masterKey": False,
+            "selfSigningKey": False,
+            "userSigningKey": False,
+            "deviceSelfSigned": False,
+            "ownIdentityTrusted": False,
+            "ownDeviceTrust": None,
+        }
+        try:
+            public_keys = await crypto.get_own_cross_signing_public_keys()
+            diagnostics["masterKey"] = bool(getattr(public_keys, "master_key", None))
+            diagnostics["selfSigningKey"] = bool(getattr(public_keys, "self_signing_key", None))
+            diagnostics["userSigningKey"] = bool(getattr(public_keys, "user_signing_key", None))
+            diagnostics["ownIdentityTrusted"] = bool(
+                diagnostics["masterKey"]
+                and diagnostics["selfSigningKey"]
+                and diagnostics["userSigningKey"]
+                and getattr(crypto, "_cross_signing_private_keys", None)
+            )
+        except Exception as error:
+            diagnostics["publicKeyError"] = str(error)
+        try:
+            device = await crypto.get_or_fetch_device(client.mxid, client.device_id)
+            if device:
+                diagnostics["ownDeviceTrust"] = str(await crypto.resolve_trust(device))
+        except Exception as error:
+            diagnostics["ownDeviceTrustError"] = str(error)
+        try:
+            response = await client.query_keys({client.mxid: [client.device_id]}, timeout=5000)
+            device_keys = response.device_keys.get(client.mxid, {}).get(client.device_id)
+            self_signing = response.self_signing_keys.get(client.mxid)
+            self_signing_key = first_key_value(getattr(self_signing, "keys", None))
+            signatures = getattr(device_keys, "signatures", {}).get(client.mxid, {}) if device_keys else {}
+            diagnostics["deviceSelfSigned"] = bool(
+                self_signing_key and any(signature_key_matches(key_id, self_signing_key) for key_id in signatures)
+            )
+        except Exception as error:
+            diagnostics["deviceSelfSignedError"] = str(error)
+        return diagnostics
+
     async def list_chats(self) -> list[dict[str, Any]]:
         client = require_client(self.client)
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
@@ -457,12 +537,30 @@ class Sidecar:
             return [{"category": "matrix-e2ee", "status": "disabled", "summary": "not connected"}]
         if not self.crypto_store:
             return [{"category": "matrix-e2ee", "status": "disabled", "summary": "encryption disabled"}]
+        cross = self.cross_sign_status
+        device_signed = cross.get("deviceSelfSigned") is True
+        keys_present = bool(cross.get("masterKey") and cross.get("selfSigningKey") and cross.get("userSigningKey"))
+        status = "ready" if device_signed and keys_present else "degraded"
+        details = [
+            "store: sqlite",
+            "sidecar: python mautrix",
+            f"device: {cross.get('deviceId') or getattr(self.client, 'device_id', '')}",
+            f"recovery key: {cross.get('recoveryKey', 'unknown')}",
+            f"cross-sign import: {cross.get('result', 'unknown')}",
+            f"cross-signing identity: {'present' if keys_present else 'incomplete'}",
+            f"device signature: {'self-signed' if device_signed else 'not self-signed'}",
+        ]
+        details.append(f"own identity trusted: {'yes' if cross.get('ownIdentityTrusted') else 'no'}")
+        if cross.get("ownDeviceTrust"):
+            details.append(f"own device trust: {cross.get('ownDeviceTrust')}")
+        if cross.get("reason"):
+            details.append(f"cross-sign reason: {cross.get('reason')}")
         return [
             {
                 "category": "matrix-e2ee",
-                "status": "ready",
-                "summary": "mautrix crypto store ready",
-                "details": ["store: sqlite", "sidecar: python mautrix"],
+                "status": status,
+                "summary": "mautrix crypto store ready" if status == "ready" else "mautrix crypto ready; cross-signing incomplete",
+                "details": details,
             }
         ]
 
@@ -657,6 +755,52 @@ async def run() -> None:
 async def emit(value: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(value, separators=(",", ":")) + "\n")
     sys.stdout.flush()
+
+
+def read_recovery_key(state_dir: Path | None) -> str | None:
+    return read_secret(
+        "UNIVERSAL_MESSENGER_GATEWAY_MATRIX_RECOVERY_KEY",
+        "UNIVERSAL_MESSENGER_GATEWAY_MATRIX_RECOVERY_KEY_FILE",
+        state_dir / "matrix-recovery-key.txt" if state_dir else None,
+        "recovery key",
+    )
+
+
+def read_secret(env_var: str, file_env_var: str, default_path: Path | None, label: str) -> str | None:
+    direct = os.environ.get(env_var)
+    if direct and direct.strip():
+        return direct.strip()
+    path_value = os.environ.get(file_env_var)
+    path = Path(path_value) if path_value else default_path
+    if not path:
+        return None
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    except Exception as error:
+        debug_event("secret_read_failed", label=label, error=str(error))
+        return None
+    if stat.st_mode & 0o077:
+        debug_event("secret_read_skipped", label=label, reason="insecure permissions", mode=oct(stat.st_mode & 0o777))
+        return None
+    try:
+        return path.read_text(encoding="utf8").strip() or None
+    except Exception as error:
+        debug_event("secret_read_failed", label=label, error=str(error))
+        return None
+
+
+def first_key_value(keys: Any) -> str | None:
+    if not isinstance(keys, dict) or not keys:
+        return None
+    value = next(iter(keys.values()))
+    return str(value) if value else None
+
+
+def signature_key_matches(key_id: Any, signing_key: str) -> bool:
+    key = getattr(key_id, "key_id", None)
+    return str(key or key_id).removeprefix("ed25519:") == signing_key
 
 
 def require_client(client: Client | None) -> Client:
