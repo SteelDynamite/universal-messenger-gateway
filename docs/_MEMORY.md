@@ -1,6 +1,6 @@
 # universal-messenger-gateway — Project State
 
-Current active state: mautrix Matrix adoption is implemented; review/commit/deploy remains.
+Current active state: mautrix Matrix adoption is implemented; an encrypted-DM recovery/debug patch is local and needs review/commit/deploy.
 
 ## Completed Matrix adoption state
 
@@ -11,13 +11,15 @@ Current active state: mautrix Matrix adoption is implemented; review/commit/depl
 - Matrix state: `mautrix-crypto.db` under the transport state dir.
 - `matrix-bot-sdk`, `@matrix-org/matrix-sdk-crypto-nodejs`, and `request` are removed from production dependencies. `matrix-bot-sdk` remains dev-only for smoke control clients.
 - Recovery-key import / cross-signing health are not required for the mautrix path; persistent encrypted restart decrypt is covered by live smoke.
+- Missing Megolm sessions now wait for same-sync room-key delivery, then request the room key from the sender device and retry before surfacing a Matrix decryption error.
+- `UMG_MATRIX_DEBUG_ROOM_KEYS=1` logs credential-safe E2EE diagnostics for key upload, sync callbacks, to-device events, room keys, withheld keys, key requests, and decrypt failures.
 - Live smoke covers plaintext, formatted text, encrypted send/receive, replies, threads, reactions, typing command path, invites, reject, leave, media metadata, group mention/member count, gateway JSON-lines path, process-exit shutdown, and encrypted decrypt after sidecar restart with stable SQLite crypto DB.
 
 ## Carry-forward
 
-- Commit UMG, Forge docs, and pi-bot-stack packaging changes.
-- Deploy/update pi-bot-stack after UMG is pushed.
-- Observe first production Matrix run using `mautrix-crypto.db`.
+- Commit UMG patch and Forge docs.
+- Update/deploy pi-bot-stack after UMG is pushed.
+- Observe production Matrix run with `UMG_MATRIX_DEBUG_ROOM_KEYS=1` temporarily enabled.
 
 ## Known carry-forward notes
 

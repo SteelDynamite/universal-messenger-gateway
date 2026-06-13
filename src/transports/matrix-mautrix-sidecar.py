@@ -6,17 +6,21 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
-from mautrix.client import Client
+from mautrix.client import Client, InternalEventType, SyncStream
+from mautrix.client.encryption_manager import DecryptionDispatcher
 from mautrix.client.state_store import FileStateStore
 from mautrix.crypto import OlmMachine
 from mautrix.crypto.store import PgCryptoStateStore, PgCryptoStore
+from mautrix.errors.crypto import DecryptionError, SessionNotFound
 from mautrix.types import (
+    EncryptedEvent,
     EventType,
     Format,
     InReplyTo,
@@ -55,6 +59,85 @@ class JsonLineErrorHandler(logging.Handler):
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 logging.getLogger("mau.client.crypto").addHandler(JsonLineErrorHandler())
+DEBUG_ROOM_KEYS = os.environ.get("UMG_MATRIX_DEBUG_ROOM_KEYS") == "1"
+
+
+def debug_event(event: str, **fields: Any) -> None:
+    if not DEBUG_ROOM_KEYS:
+        return
+    payload = {"event": event, **compact({key: safe_debug_value(value) for key, value in fields.items()})}
+    print(f"[umg-mautrix-debug] {json.dumps(payload, sort_keys=True, separators=(',', ':'))}", file=sys.stderr)
+
+
+def safe_debug_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        return [safe_debug_value(item) for item in value]
+    return str(value)
+
+
+class DiagnosticOlmMachine(OlmMachine):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.client.remove_event_handler(EventType.TO_DEVICE_ENCRYPTED, self.handle_to_device_event)
+        self.client.add_event_handler(EventType.TO_DEVICE_ENCRYPTED, self.handle_to_device_event, wait_sync=True)
+
+    async def share_keys(self, current_otk_count: int | None = None) -> None:
+        debug_event(
+            "device_key_share_start",
+            device_id=self.client.device_id,
+            account_shared=getattr(self.account, "shared", None),
+            current_otk_count=current_otk_count,
+        )
+        await super().share_keys(current_otk_count)
+        debug_event(
+            "device_key_share_complete",
+            device_id=self.client.device_id,
+            account_shared=getattr(self.account, "shared", None),
+        )
+
+    async def handle_to_device_event(self, evt: Any) -> None:
+        debug_event(
+            "to_device_encrypted_received",
+            sender=str(getattr(evt, "sender", "")),
+            sender_key=str(getattr(getattr(evt, "content", None), "sender_key", "")),
+        )
+        decrypted_evt = await self._decrypt_olm_event(evt)
+        debug_event(
+            "to_device_decrypted",
+            decrypted_type=str(getattr(decrypted_evt, "type", "")),
+            sender=str(getattr(decrypted_evt, "sender", "")),
+            sender_device=str(getattr(decrypted_evt, "sender_device", "")),
+        )
+        if decrypted_evt.type == EventType.ROOM_KEY:
+            await self._receive_room_key(decrypted_evt)
+        elif decrypted_evt.type == EventType.FORWARDED_ROOM_KEY:
+            await self._receive_forwarded_room_key(decrypted_evt)
+
+    async def _receive_room_key(self, evt: Any) -> None:
+        content = getattr(evt, "content", None)
+        debug_event(
+            "room_key_received",
+            room_id=str(getattr(content, "room_id", "")),
+            session_id=str(getattr(content, "session_id", "")),
+            sender=str(getattr(evt, "sender", "")),
+            sender_device=str(getattr(evt, "sender_device", "")),
+        )
+        await super()._receive_room_key(evt)
+
+    async def _receive_forwarded_room_key(self, evt: Any) -> None:
+        content = getattr(evt, "content", None)
+        debug_event(
+            "forwarded_room_key_received",
+            room_id=str(getattr(content, "room_id", "")),
+            session_id=str(getattr(content, "session_id", "")),
+            sender=str(getattr(evt, "sender", "")),
+            sender_device=str(getattr(evt, "sender_device", "")),
+        )
+        await super()._receive_forwarded_room_key(evt)
 
 
 class Sidecar:
@@ -62,6 +145,7 @@ class Sidecar:
         self.client: Client | None = None
         self.crypto_db: Database | None = None
         self.crypto_store: PgCryptoStore | None = None
+        self.crypto: OlmMachine | None = None
         self.state_store: FileStateStore | None = None
         self.bot_user_id = ""
         self.joined_rooms: set[str] = set()
@@ -124,24 +208,38 @@ class Sidecar:
                 client.device_id = stored_device_id
             elif whoami.device_id:
                 await crypto_store.put_device_id(whoami.device_id)
-            crypto = OlmMachine(client, crypto_store, state_store)
+            crypto = DiagnosticOlmMachine(client, crypto_store, state_store)
             crypto.share_keys_min_trust = TrustState.UNVERIFIED
             crypto.send_keys_min_trust = TrustState.UNVERIFIED
             client.crypto = crypto
+            client.remove_dispatcher(DecryptionDispatcher)
+            client.add_event_handler(EventType.ROOM_ENCRYPTED, self.handle_encrypted, wait_sync=True)
+            debug_event("olm_load_start", user_id=str(client.mxid), device_id=str(client.device_id))
             await crypto.load()
+            debug_event(
+                "olm_load_complete",
+                user_id=str(client.mxid),
+                device_id=str(client.device_id),
+                account_shared=getattr(crypto.account, "shared", None),
+            )
             if not crypto.account.shared:
                 await crypto.share_keys()
+            else:
+                debug_event("device_keys_already_shared", device_id=str(client.device_id))
             self.crypto_db = crypto_db
             self.crypto_store = crypto_store
+            self.crypto = crypto
 
         client.add_event_handler(EventType.ROOM_MESSAGE, self.handle_message)
         client.add_event_handler(EventType.REACTION, self.handle_reaction)
         client.add_event_handler(EventType.ROOM_MEMBER, self.handle_member)
+        self.register_debug_handlers(client)
         self.client = client
         self.connected_at = now_ms()
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
         for room_id in list(self.joined_rooms):
             await self.refresh_room_member_count(room_id)
+        debug_event("sync_starting", user_id=self.bot_user_id, device_id=str(getattr(client, "device_id", "")))
         client.start(None)
         return {"userId": self.bot_user_id, "deviceId": str(getattr(client, "device_id", ""))}
 
@@ -159,11 +257,189 @@ class Sidecar:
         self.client = None
         self.crypto_db = None
         self.crypto_store = None
+        self.crypto = None
         self.state_store = None
         self.joined_rooms.clear()
         self.pending_invites.clear()
         self.room_member_count.clear()
         self.state_dir = None
+
+    def register_debug_handlers(self, client: Client) -> None:
+        if not DEBUG_ROOM_KEYS:
+            return
+        client.add_event_handler(EventType.ALL, self.handle_to_device_debug, sync_stream=SyncStream.TO_DEVICE)
+        client.add_event_handler(EventType.ROOM_KEY_WITHHELD, self.handle_room_key_withheld)
+        client.add_event_handler(EventType.ORG_MATRIX_ROOM_KEY_WITHHELD, self.handle_room_key_withheld)
+        client.add_event_handler(InternalEventType.SYNC_STARTED, self.handle_sync_started_debug)
+        client.add_event_handler(InternalEventType.SYNC_SUCCESSFUL, self.handle_sync_success_debug)
+        client.add_event_handler(InternalEventType.DEVICE_OTK_COUNT, self.handle_otk_count_debug)
+        client.add_event_handler(InternalEventType.DEVICE_LISTS, self.handle_device_lists_debug)
+
+    async def handle_sync_started_debug(self, _: Any) -> None:
+        client = require_client(self.client)
+        debug_event("sync_started_callback", user_id=self.bot_user_id, device_id=str(getattr(client, "device_id", "")))
+
+    async def handle_sync_success_debug(self, data: Any) -> None:
+        if not isinstance(data, dict):
+            debug_event("sync_success_callback")
+            return
+        debug_event(
+            "sync_success_callback",
+            is_initial=bool((data.get("net.maunium.mautrix") or {}).get("is_initial")) if isinstance(data.get("net.maunium.mautrix"), dict) else None,
+            to_device_events=len((data.get("to_device") or {}).get("events") or []) if isinstance(data.get("to_device"), dict) else 0,
+            joined_rooms=len((data.get("rooms") or {}).get("join") or {}) if isinstance(data.get("rooms"), dict) else 0,
+            invited_rooms=len((data.get("rooms") or {}).get("invite") or {}) if isinstance(data.get("rooms"), dict) else 0,
+        )
+
+    async def handle_otk_count_debug(self, count: Any) -> None:
+        debug_event(
+            "otk_count_callback",
+            curve25519=getattr(count, "curve25519", None),
+            signed_curve25519=getattr(count, "signed_curve25519", None),
+        )
+
+    async def handle_device_lists_debug(self, device_lists: Any) -> None:
+        debug_event(
+            "device_lists_callback",
+            changed=list(getattr(device_lists, "changed", []) or []),
+            left=list(getattr(device_lists, "left", []) or []),
+        )
+
+    async def handle_to_device_debug(self, event: Any) -> None:
+        content = serialize(getattr(event, "content", None))
+        debug_event(
+            "to_device_received",
+            event_type=str(getattr(event, "type", "")),
+            sender=str(getattr(event, "sender", "")),
+            code=content.get("code"),
+            reason=content.get("reason"),
+            room_id=content.get("room_id"),
+            session_id=content.get("session_id"),
+        )
+
+    async def handle_room_key_withheld(self, event: Any) -> None:
+        content = serialize(getattr(event, "content", None))
+        debug_event(
+            "room_key_withheld",
+            sender=str(getattr(event, "sender", "")),
+            room_id=content.get("room_id"),
+            session_id=content.get("session_id"),
+            code=content.get("code"),
+            reason=content.get("reason"),
+            algorithm=content.get("algorithm"),
+        )
+
+    async def handle_encrypted(self, event: EncryptedEvent) -> None:
+        try:
+            await self.decrypt_and_dispatch(event)
+        except SessionNotFound as error:
+            room_id = str(event.room_id)
+            event_id = str(event.event_id) if event.event_id else None
+            content = event.content
+            session_id = str(getattr(content, "session_id", "")) or str(error.session_id)
+            debug_event(
+                "decryption_missing_session",
+                room_id=room_id,
+                event_id=event_id,
+                sender=str(event.sender),
+                session_id=session_id,
+                device_id=encrypted_content_device_id(content),
+            )
+            crypto = require_crypto(self.crypto)
+            if await crypto.wait_for_session(event.room_id, content.session_id, timeout=3):
+                debug_event("decryption_retry_after_room_key", room_id=room_id, event_id=event_id, session_id=session_id)
+                await self.decrypt_and_dispatch(event)
+                return
+            try:
+                requested_key = await self.request_missing_room_key(event, timeout=10)
+            except Exception as request_error:
+                debug_event("room_key_request_failed", room_id=room_id, event_id=event_id, error=str(request_error))
+                requested_key = False
+            if requested_key:
+                debug_event("decryption_retry_after_key_request", room_id=room_id, event_id=event_id, session_id=session_id)
+                await self.decrypt_and_dispatch(event)
+                return
+            await self.emit_decryption_error(event, error)
+        except DecryptionError as error:
+            await self.emit_decryption_error(event, error)
+
+    async def decrypt_and_dispatch(self, event: EncryptedEvent) -> None:
+        client = require_client(self.client)
+        crypto = require_crypto(self.crypto)
+        decrypted = await crypto.decrypt_megolm_event(event)
+        debug_event(
+            "decryption_success",
+            room_id=str(event.room_id),
+            event_id=str(event.event_id) if event.event_id else None,
+            decrypted_type=str(getattr(decrypted, "type", "")),
+        )
+        tasks = client.dispatch_event(decrypted, getattr(event, "source", None))
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    async def request_missing_room_key(self, event: EncryptedEvent, timeout: int) -> bool:
+        crypto = require_crypto(self.crypto)
+        content = event.content
+        session_id = getattr(content, "session_id", None)
+        sender_key = encrypted_content_sender_key(content)
+        device_id = encrypted_content_device_id(content)
+        if not session_id or not sender_key:
+            debug_event(
+                "room_key_request_skipped",
+                room_id=str(event.room_id),
+                event_id=str(event.event_id) if event.event_id else None,
+                reason="missing session_id or sender_key",
+            )
+            return False
+        if not device_id:
+            try:
+                device = await crypto.get_or_fetch_device_by_key(event.sender, sender_key)
+                device_id = str(device.device_id) if device else None
+            except Exception as error:
+                debug_event("room_key_request_device_lookup_failed", error=str(error))
+        if not device_id:
+            debug_event(
+                "room_key_request_skipped",
+                room_id=str(event.room_id),
+                event_id=str(event.event_id) if event.event_id else None,
+                reason="missing sender device",
+            )
+            return False
+        debug_event(
+            "room_key_request_send",
+            room_id=str(event.room_id),
+            event_id=str(event.event_id) if event.event_id else None,
+            sender=str(event.sender),
+            sender_device=device_id,
+            session_id=str(session_id),
+        )
+        return await crypto.request_room_key(
+            event.room_id,
+            sender_key,
+            session_id,
+            {event.sender: {device_id: None}},
+            timeout=timeout,
+        )
+
+    async def emit_decryption_error(self, event: EncryptedEvent, error: Exception) -> None:
+        room_id = str(event.room_id)
+        event_id = str(event.event_id) if event.event_id else None
+        debug_event(
+            "decryption_failed",
+            room_id=room_id,
+            event_id=event_id,
+            sender=str(event.sender),
+            error=str(error),
+        )
+        await emit(
+            {
+                "type": "error",
+                "category": "matrix-decryption",
+                "roomId": room_id,
+                "eventId": event_id,
+                "error": str(error),
+            }
+        )
 
     async def list_chats(self) -> list[dict[str, Any]]:
         client = require_client(self.client)
@@ -387,6 +663,21 @@ def require_client(client: Client | None) -> Client:
     if not client:
         raise RuntimeError("Matrix client not connected")
     return client
+
+
+def require_crypto(crypto: OlmMachine | None) -> OlmMachine:
+    if not crypto:
+        raise RuntimeError("Matrix crypto not connected")
+    return crypto
+
+
+def encrypted_content_sender_key(content: Any) -> Any:
+    return getattr(content, "_sender_key", None)
+
+
+def encrypted_content_device_id(content: Any) -> str | None:
+    device_id = getattr(content, "_device_id", None)
+    return str(device_id) if device_id else None
 
 
 def make_relates_to(room_id: str, reply_to: Any, thread_to: Any) -> RelatesTo | None:

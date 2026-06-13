@@ -95,7 +95,10 @@ export class MautrixMatrixProvider implements TransportProvider {
     });
     this.#process = child;
     child.stderr.on("data", (chunk) => {
-      if (process.env.UMG_MAUTRIX_DEBUG === "1") {
+      if (
+        process.env.UMG_MAUTRIX_DEBUG === "1" ||
+        process.env.UMG_MATRIX_DEBUG_ROOM_KEYS === "1"
+      ) {
         process.stderr.write(chunk);
       }
     });

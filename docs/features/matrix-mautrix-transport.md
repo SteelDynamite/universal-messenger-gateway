@@ -71,6 +71,8 @@ Do not start by patching `matrix-bot-sdk` unless this spike fails.
 - Done: gateway JSON-lines send/event path.
 - Done: process-exit shutdown clears connection state.
 - Done: mautrix decryption warnings are normalized to UMG errors.
+- Done: missing Megolm sessions wait briefly for same-sync room-key delivery, then request the room key from the sender device and retry before reporting a decryption error.
+- Done: `UMG_MATRIX_DEBUG_ROOM_KEYS=1` logs credential-safe E2EE diagnostics for key upload, sync callbacks, to-device room-key events, withheld keys, key requests, and decrypt failures.
 - Done: pi-bot-stack installs `requirements-mautrix.txt` into the runtime tool venv and verifies imports.
 - Done: `matrix-bot-sdk` and `request` are removed from production dependencies.
 - Decision: recovery-key import and cross-signing health are not required for the mautrix path; mautrix persists Olm/Megolm state in SQLite and smoke proves encrypted restart decrypt.
