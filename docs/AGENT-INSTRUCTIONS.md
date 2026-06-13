@@ -24,6 +24,7 @@ ADRs, which exist to record a decision.
 - Decisions (why) → `docs/decisions/NNNN-subject.md`
 - Procedures (how) → `docs/runbooks/`
 - Features / phases / tasks → `docs/features/`
+- Lessons / recurring fixes → `docs/lessons/`
 - Technical debt → `docs/techdebt/NNNN-subject.md`
 - Active work state → `docs/_MEMORY.md`
 
