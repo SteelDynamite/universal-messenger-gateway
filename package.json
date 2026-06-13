@@ -15,7 +15,9 @@
     "umg": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "src/transports/matrix-mautrix-sidecar.py",
+    "requirements-mautrix.txt"
   ],
   "scripts": {
     "build": "tsc",
@@ -29,14 +31,8 @@
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.15.21",
     "fast-check": "^4.8.0",
+    "matrix-bot-sdk": "^0.8.0",
     "typescript": "^5.8.3",
     "vitest": "^3.1.4"
-  },
-  "dependencies": {
-    "@matrix-org/matrix-sdk-crypto-nodejs": "0.6.0",
-    "matrix-bot-sdk": "^0.8.0"
-  },
-  "overrides": {
-    "@matrix-org/matrix-sdk-crypto-nodejs": "0.6.0"
   }
 }

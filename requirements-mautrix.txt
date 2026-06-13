@@ -1,0 +1,3 @@
+mautrix[encryption]==0.21.0
+aiosqlite==0.22.1
+asyncpg==0.31.0

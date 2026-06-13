@@ -118,7 +118,7 @@ function usage(): string {
     "",
     "State:",
     "  Uses ./state by default. Override with UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR=/path.",
-    "  Matrix secrets may live in state/matrix-access-token.txt and state/matrix-recovery-key.txt (chmod 600).",
+    "  Matrix access tokens live in state/matrix-access-token.txt (chmod 600).",
     "",
   ].join("\n");
 }

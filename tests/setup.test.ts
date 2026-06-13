@@ -19,12 +19,7 @@ test("sets up Matrix config and secret files", async () => {
   const output = new StringSink();
 
   const exitCode = await runSetupCli({
-    input: Readable.from([
-      "https://matrix.example\n",
-      "y\n",
-      "access-token\n",
-      "recovery-key\n",
-    ]),
+    input: Readable.from(["https://matrix.example\n", "y\n", "access-token\n"]),
     output,
     errorOutput: new StringSink(),
     stateDir,
@@ -49,36 +44,30 @@ test("sets up Matrix config and secret files", async () => {
     await readFile(join(stateDir, "matrix-access-token.txt"), "utf8"),
   ).toBe("access-token");
   expect(
-    await readFile(join(stateDir, "matrix-recovery-key.txt"), "utf8"),
-  ).toBe("recovery-key");
-  expect(
     (await stat(join(stateDir, "matrix-access-token.txt"))).mode & 0o777,
   ).toBe(0o600);
   expect(output.text()).toContain("Matrix configured");
 });
 
-test("warns when encrypted setup has no recovery key", async () => {
+test("describes mautrix crypto state for encrypted setup", async () => {
   const stateDir = await tempStateDir();
   const output = new StringSink();
 
   await runSetupCli({
-    input: Readable.from(["https://matrix.example\ny\naccess-token\n\n"]),
+    input: Readable.from(["https://matrix.example\ny\naccess-token\n"]),
     output,
     errorOutput: new StringSink(),
     stateDir,
     transport: "matrix",
   });
 
-  expect(output.text()).toContain("Matrix E2EE warning");
-  expect(output.text()).toContain("health will be checked on connect");
+  expect(output.text()).toContain("mautrix SQLite crypto store");
 });
 
 test("keeps existing Matrix secrets when blank", async () => {
   const stateDir = await tempStateDir();
   await runSetupCli({
-    input: Readable.from([
-      "https://matrix.example\ny\naccess-token\nrecovery-key\n",
-    ]),
+    input: Readable.from(["https://matrix.example\ny\naccess-token\n"]),
     output: new StringSink(),
     errorOutput: new StringSink(),
     stateDir,

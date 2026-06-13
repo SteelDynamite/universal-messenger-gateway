@@ -168,7 +168,6 @@ function noTransportsMessage(): string {
     "Start here:",
     "  Create state/config.json with Matrix settings, and store secrets in:",
     "    state/matrix-access-token.txt",
-    "    state/matrix-recovery-key.txt  # for encrypted rooms",
     "  Then run: umg chat",
     "",
     "Quick unencrypted setup:",

@@ -76,6 +76,13 @@ export {
   parseMatrixConfig,
 } from "./transports/matrix.js";
 export {
+  createMautrixMatrixProvider,
+  MautrixMatrixDecryptionError,
+  MautrixMatrixProvider,
+  parseMautrixMatrixConfig,
+  type MautrixMatrixConfig,
+} from "./transports/matrix-mautrix.js";
+export {
   createConfiguredTransports,
   defaultTransportRegistry,
   UnavailableTransportError,

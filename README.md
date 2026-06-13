@@ -38,8 +38,8 @@ umg chat
 ```
 
 `umg setup matrix` writes `state/config.json` and local secret files such as
-`state/matrix-access-token.txt` and `state/matrix-recovery-key.txt` with `600`
-permissions. State defaults to `./state`; override it with
+`state/matrix-access-token.txt` with `600` permissions. Matrix E2EE state is stored
+in `state/mautrix-crypto.db`. State defaults to `./state`; override it with
 `UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR=/path`.
 
 ## Documentation

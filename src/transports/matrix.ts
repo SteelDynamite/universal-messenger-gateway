@@ -1,66 +1,53 @@
-import { mkdir } from "node:fs/promises";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { ILogger } from "matrix-bot-sdk";
-import {
-  LogService,
-  MatrixClient,
-  RustSdkCryptoStorageProvider,
-  SimpleFsStorageProvider,
-} from "matrix-bot-sdk";
 import type { TransportConfig } from "../config.js";
-import type {
-  InboundMessage,
-  InboundReaction,
-  MessageReference,
-} from "../protocol.js";
-import type {
-  TransportChat,
-  TransportHealth,
-  TransportInvite,
-  TransportProvider,
-} from "./interface.js";
+import type { MessageReference } from "../protocol.js";
+import type { TransportProvider } from "./interface.js";
 import {
-  type CrossSignResult,
-  ensureSelfCrossSigned,
-  isDeviceCrossSigned,
-  readAccessToken,
-  readAccountPassword,
-  readRecoveryKey,
-} from "./matrix-crosssign.js";
-import {
-  type MatrixRoomEvent,
-  extractUsername,
-  formatForMatrix,
-  mediaAttachmentFromMatrixContent,
-  shouldSkipEvent,
-  shouldSkipReactionEvent,
-  stripBotMention,
-  wasBotMentioned,
-} from "./matrix-utils.js";
+  type MautrixMatrixConfig,
+  MautrixMatrixDecryptionError,
+  MautrixMatrixProvider,
+} from "./matrix-mautrix.js";
 
-type MatrixTransportConfig = {
-  homeserverUrl: string;
-  accessToken: string;
-  encryption?: boolean;
+export type MatrixTransportConfig = MautrixMatrixConfig & {
   selfCrossSign?: boolean | "reset";
   accountPassword?: string;
   recoveryKey?: string;
 };
 
-type MatrixMachine = {
-  crossSigningStatus(): Promise<{
-    hasMaster: boolean;
-    hasSelfSigning: boolean;
-    hasUserSigning: boolean;
-  }>;
-  isBackupEnabled?(): Promise<boolean>;
+type MatrixLogger = {
+  info(module: string, ...args: unknown[]): void;
+  warn(module: string, ...args: unknown[]): void;
+  debug(module: string, ...args: unknown[]): void;
+  trace(module: string, ...args: unknown[]): void;
+  error(module: string, ...args: unknown[]): void;
 };
 
-type MatrixEvent = MatrixRoomEvent & {
-  event_id?: string;
-  type?: string;
-  content?: MatrixEventContent;
-};
+export class MatrixConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MatrixConfigError";
+  }
+}
+
+export const MatrixDecryptionError = MautrixMatrixDecryptionError;
+export type MatrixDecryptionError = MautrixMatrixDecryptionError;
+
+export class MatrixProvider extends MautrixMatrixProvider {
+  constructor(config: MatrixTransportConfig, stateDir: string) {
+    super(
+      {
+        ...config,
+        ...(config.pythonPath
+          ? {}
+          : process.env.UMG_MATRIX_MAUTRIX_PYTHON
+            ? { pythonPath: process.env.UMG_MATRIX_MAUTRIX_PYTHON }
+            : {}),
+      },
+      stateDir,
+    );
+  }
+}
 
 type MatrixEventContent = {
   msgtype?: string;
@@ -83,728 +70,6 @@ type MatrixEventContent = {
     rel_type?: unknown;
   };
 };
-
-type MatrixInviteEvent = {
-  sender?: string;
-  unsigned?: {
-    invite_room_state?: Array<{
-      type?: string;
-      state_key?: string;
-      content?: Record<string, unknown>;
-    }>;
-  };
-};
-
-export class MatrixConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "MatrixConfigError";
-  }
-}
-
-export class MatrixDecryptionError extends Error {
-  constructor(
-    readonly roomId: string,
-    readonly eventId: string | undefined,
-    options?: ErrorOptions,
-  ) {
-    super(
-      `Matrix event could not be decrypted in ${roomId}${eventId ? ` (${eventId})` : ""}`,
-      options,
-    );
-    this.name = "MatrixDecryptionError";
-  }
-}
-
-export class MatrixProvider implements TransportProvider {
-  readonly type = "matrix";
-  readonly #config: MatrixTransportConfig;
-  readonly #stateDir: string;
-  #client: MatrixClient | undefined;
-  #isConnected = false;
-  #messageHandler?: (message: InboundMessage) => void;
-  #reactionHandler?: (reaction: InboundReaction) => void;
-  #inviteHandler?: (invite: TransportInvite) => void;
-  #errorHandler?: (error: unknown) => void;
-  #botUserId: string | undefined;
-  #joinedRooms = new Set<string>();
-  #pendingInvites = new Map<string, TransportInvite>();
-  #roomMemberCount = new Map<string, number>();
-  #connectedAt = 0;
-  #e2eeHealth: TransportHealth = {
-    category: "matrix-e2ee",
-    status: "disabled",
-    summary: "encryption not checked yet",
-  };
-
-  constructor(config: MatrixTransportConfig, stateDir: string) {
-    this.#config = config;
-    this.#stateDir = stateDir;
-  }
-
-  get isConnected(): boolean {
-    return this.#isConnected;
-  }
-
-  async connect(): Promise<void> {
-    if (this.#isConnected) {
-      return;
-    }
-
-    await mkdir(this.#stateDir, { recursive: true });
-
-    const storage = new SimpleFsStorageProvider(
-      join(this.#stateDir, "matrix-store.json"),
-    );
-    let cryptoProvider: RustSdkCryptoStorageProvider | undefined;
-
-    if (this.#config.encryption !== false) {
-      try {
-        cryptoProvider = new RustSdkCryptoStorageProvider(
-          join(this.#stateDir, "matrix-crypto"),
-          0,
-        );
-      } catch (error) {
-        this.#errorHandler?.(error);
-      }
-    }
-
-    const client = new MatrixClient(
-      this.#config.homeserverUrl,
-      this.#config.accessToken,
-      storage,
-      cryptoProvider,
-    );
-    this.#client = client;
-
-    try {
-      this.#botUserId = await client.getUserId();
-      this.#connectedAt = Date.now();
-      this.installRoomKeyDiagnostics();
-
-      client.on("room.join", (roomId: string) => {
-        this.#joinedRooms.add(roomId);
-        this.#pendingInvites.delete(roomId);
-        this.#client
-          ?.getJoinedRoomMembers(roomId)
-          .then((members) => this.#roomMemberCount.set(roomId, members.length))
-          .catch(() => {});
-      });
-      client.on("room.leave", (roomId: string) => {
-        this.#joinedRooms.delete(roomId);
-        this.#pendingInvites.delete(roomId);
-        this.#roomMemberCount.delete(roomId);
-      });
-      client.on("room.invite", (roomId: string, event: MatrixInviteEvent) => {
-        const invite = {
-          inviteId: roomId,
-          ...inviteDetails(event),
-        };
-        this.#pendingInvites.set(roomId, invite);
-        this.#inviteHandler?.(invite);
-      });
-      client.on("room.message", (roomId: string, event: MatrixEvent) => {
-        void this.handleMessage(roomId, event).catch((error: unknown) => {
-          this.#errorHandler?.(error);
-        });
-      });
-      client.on("room.event", (roomId: string, event: MatrixEvent) => {
-        if (event.type === "m.room.member") {
-          this.refreshRoomMemberCount(roomId);
-          return;
-        }
-
-        if (event.type !== "m.reaction") {
-          return;
-        }
-
-        this.handleReaction(roomId, event);
-      });
-      client.on(
-        "room.failed_decryption",
-        (roomId: string, event: MatrixEvent, error: unknown) => {
-          this.#errorHandler?.(
-            new MatrixDecryptionError(roomId, event.event_id, { cause: error }),
-          );
-        },
-      );
-
-      LogService.setLogger(createSyncFilterLogger(createMatrixLogger()));
-      await client.start();
-
-      let crossSignResult: CrossSignResult | undefined;
-      if (cryptoProvider && this.#config.selfCrossSign !== false) {
-        crossSignResult = await this.selfCrossSign();
-      }
-      this.#e2eeHealth = await this.evaluateE2eeHealth(
-        cryptoProvider,
-        crossSignResult,
-      );
-      const rooms = await client.getJoinedRooms();
-      this.#joinedRooms = new Set(rooms);
-      await Promise.all(
-        rooms.map(async (roomId) => {
-          try {
-            const members = await client.getJoinedRoomMembers(roomId);
-            this.#roomMemberCount.set(roomId, members.length);
-          } catch {
-            // Cache miss can be filled on first message.
-          }
-        }),
-      );
-      this.#isConnected = true;
-    } catch (error) {
-      this.stopClient(client);
-      this.resetClientState();
-      throw error;
-    }
-  }
-
-  disconnect(): Promise<void> {
-    if (this.#client) {
-      this.stopClient(this.#client);
-    }
-    this.resetClientState();
-    return Promise.resolve();
-  }
-
-  shutdownForProcessExit(): void {
-    try {
-      this.#client?.stop();
-    } catch {
-      // Process exit is already in progress.
-    }
-    this.resetClientState();
-  }
-
-  async listChats(): Promise<TransportChat[]> {
-    if (!this.#client) {
-      return [...this.#joinedRooms].map((chatId) => ({ chatId }));
-    }
-
-    const rooms = await this.#client.getJoinedRooms();
-    this.#joinedRooms = new Set(rooms);
-    return Promise.all(
-      rooms.map(async (roomId) => ({
-        chatId: roomId,
-        ...(await this.roomDisplayName(roomId)),
-      })),
-    );
-  }
-
-  listInvites(): Promise<TransportInvite[]> {
-    return Promise.resolve([...this.#pendingInvites.values()]);
-  }
-
-  health(): Promise<TransportHealth[]> {
-    return Promise.resolve([this.#e2eeHealth]);
-  }
-
-  async sendMessage(
-    chatId: string,
-    text: string,
-    replyTo?: MessageReference,
-    threadTo?: MessageReference,
-  ): Promise<void> {
-    if (!this.#client) {
-      throw new Error("Matrix client not connected");
-    }
-    if (!text.trim()) {
-      return;
-    }
-
-    const { body, formattedBody } = formatForMatrix(text);
-    const relatesTo = matrixRelatesTo(chatId, this.type, replyTo, threadTo);
-    await this.#client.sendMessage(chatId, {
-      msgtype: "m.text",
-      body,
-      ...(relatesTo ? { "m.relates_to": relatesTo } : {}),
-      ...(formattedBody
-        ? { format: "org.matrix.custom.html", formatted_body: formattedBody }
-        : {}),
-    });
-  }
-
-  async sendReaction(
-    chatId: string,
-    messageId: string,
-    reaction: string,
-  ): Promise<void> {
-    if (!this.#client) {
-      throw new Error("Matrix client not connected");
-    }
-
-    await this.#client.unstableApis.addReactionToEvent(
-      chatId,
-      messageId,
-      reaction,
-    );
-  }
-
-  async sendTyping(chatId: string): Promise<void> {
-    try {
-      await this.#client?.setTyping(chatId, true, 10000);
-    } catch {
-      // Typing indicators are best effort.
-    }
-  }
-
-  async leaveChat(chatId: string, reason?: string): Promise<void> {
-    if (!this.#client) {
-      throw new Error("Matrix client not connected");
-    }
-
-    await this.#client.leaveRoom(chatId, reason);
-    this.#joinedRooms.delete(chatId);
-    this.#roomMemberCount.delete(chatId);
-  }
-
-  async acceptInvite(inviteId: string): Promise<void> {
-    if (!this.#client) {
-      throw new Error("Matrix client not connected");
-    }
-
-    const roomId = await this.#client.joinRoom(inviteId);
-    this.#pendingInvites.delete(inviteId);
-    this.#joinedRooms.add(roomId);
-  }
-
-  async rejectInvite(inviteId: string, reason?: string): Promise<void> {
-    if (!this.#client) {
-      throw new Error("Matrix client not connected");
-    }
-
-    await this.#client.leaveRoom(inviteId, reason);
-    this.#pendingInvites.delete(inviteId);
-  }
-
-  onMessage(handler: (message: InboundMessage) => void): void {
-    this.#messageHandler = handler;
-  }
-
-  onReaction(handler: (reaction: InboundReaction) => void): void {
-    this.#reactionHandler = handler;
-  }
-
-  onInvite(handler: (invite: TransportInvite) => void): void {
-    this.#inviteHandler = handler;
-  }
-
-  onError(handler: (error: unknown) => void): void {
-    this.#errorHandler = handler;
-  }
-
-  private installRoomKeyDiagnostics(): void {
-    if (process.env.UMG_MATRIX_DEBUG_ROOM_KEYS !== "1" || !this.#client) {
-      return;
-    }
-
-    const client = this.#client as MatrixClient & {
-      sendToDevices(
-        type: string,
-        messages: Record<string, Record<string, unknown>>,
-      ): Promise<void>;
-    };
-    const requestClient = client as MatrixClient & {
-      doRequest(
-        method: string,
-        path: string,
-        ...args: unknown[]
-      ): Promise<unknown>;
-    };
-    const originalDoRequest = requestClient.doRequest.bind(requestClient);
-    requestClient.doRequest = async (method, path, ...args) => {
-      const response = await originalDoRequest(method, path, ...args);
-      if (method === "GET" && path.includes("/sync")) {
-        process.stderr.write(
-          `[Matrix room-key debug] ${this.#botUserId ?? "unknown"} sync ${summarizeSyncToDevice(response)}\n`,
-        );
-      }
-      return response;
-    };
-
-    const originalSendToDevices = client.sendToDevices.bind(client);
-    client.sendToDevices = async (type, messages) => {
-      process.stderr.write(
-        `[Matrix room-key debug] ${this.#botUserId ?? "unknown"} sending to-device ${type} to ${summarizeToDeviceRecipients(messages)}\n`,
-      );
-      const result = await originalSendToDevices(type, messages);
-      process.stderr.write(
-        `[Matrix room-key debug] ${this.#botUserId ?? "unknown"} sent to-device ${type}\n`,
-      );
-      return result;
-    };
-
-    client.on("to_device.decrypted", (event: unknown) => {
-      process.stderr.write(
-        `[Matrix room-key debug] ${this.#botUserId ?? "unknown"} received decrypted to-device ${summarizeToDeviceEvent(event)}\n`,
-      );
-    });
-  }
-
-  private async selfCrossSign(): Promise<CrossSignResult | undefined> {
-    if (!this.#client) {
-      return undefined;
-    }
-
-    try {
-      const password =
-        this.#config.accountPassword ?? readAccountPassword(this.#stateDir);
-      const recoveryKey =
-        this.#config.recoveryKey ?? readRecoveryKey(this.#stateDir);
-      const result = await ensureSelfCrossSigned(this.#client, {
-        reset: this.#config.selfCrossSign === "reset",
-        ...(password ? { password } : {}),
-        ...(recoveryKey ? { recoveryKey } : {}),
-      });
-      if (result.status === "skipped" && result.reason) {
-        this.#errorHandler?.(
-          new Error(`Matrix cross-sign skipped: ${result.reason}`),
-        );
-      }
-      return result;
-    } catch (error) {
-      this.#errorHandler?.(error);
-      return {
-        status: "skipped",
-        reason: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  private async evaluateE2eeHealth(
-    cryptoProvider: RustSdkCryptoStorageProvider | undefined,
-    crossSignResult: CrossSignResult | undefined,
-  ): Promise<TransportHealth> {
-    if (this.#config.encryption === false) {
-      return {
-        category: "matrix-e2ee",
-        status: "disabled",
-        summary: "encryption disabled",
-      };
-    }
-
-    const details: string[] = [];
-    const warnings: string[] = [];
-    const problems: string[] = [];
-    if (!cryptoProvider) {
-      problems.push("crypto store was not created");
-    }
-
-    const machine = this.matrixMachine();
-    if (!machine) {
-      problems.push("Olm machine unavailable");
-    }
-
-    const recoveryKey =
-      this.#config.recoveryKey ?? readRecoveryKey(this.#stateDir);
-    if (recoveryKey) {
-      details.push("recovery key: present");
-    } else {
-      problems.push(
-        "recovery key missing; cannot import SSSS cross-signing secrets",
-      );
-    }
-
-    if (crossSignResult) {
-      details.push(
-        `cross-sign import: ${crossSignResult.status}${crossSignResult.reason ? ` (${crossSignResult.reason})` : ""}`,
-      );
-      if (crossSignResult.status === "skipped") {
-        problems.push(
-          `cross-signing skipped: ${crossSignResult.reason ?? "unknown reason"}`,
-        );
-      }
-    } else if (this.#config.selfCrossSign === false) {
-      problems.push("self cross-signing disabled by config");
-    }
-
-    if (machine) {
-      try {
-        const status = await machine.crossSigningStatus();
-        const hasIdentity =
-          status.hasMaster && status.hasSelfSigning && status.hasUserSigning;
-        details.push(
-          `cross-signing identity: ${hasIdentity ? "present" : "incomplete"}`,
-        );
-        if (!hasIdentity) {
-          problems.push("cross-signing identity incomplete");
-        }
-      } catch (error) {
-        problems.push(`cross-signing status unavailable: ${String(error)}`);
-      }
-
-      try {
-        const userId = this.#botUserId ?? (await this.#client?.getUserId());
-        const signed = userId
-          ? await isDeviceCrossSigned(this.#client as MatrixClient, userId)
-          : false;
-        details.push(`device signature: ${signed ? "signed" : "not signed"}`);
-        if (!signed) {
-          problems.push("device is not cross-signed");
-        }
-      } catch (error) {
-        problems.push(`device signature check failed: ${String(error)}`);
-      }
-
-      if (machine.isBackupEnabled) {
-        try {
-          const backupEnabled = await machine.isBackupEnabled();
-          details.push(
-            `key backup: ${backupEnabled ? "active" : "not active"}`,
-          );
-          if (!backupEnabled) {
-            warnings.push(
-              "key backup is not active in the local crypto machine",
-            );
-          }
-        } catch (error) {
-          warnings.push(`key backup status unavailable: ${String(error)}`);
-        }
-      } else {
-        warnings.push("key backup status API unavailable");
-      }
-    }
-
-    return {
-      category: "matrix-e2ee",
-      status: problems.length === 0 ? "ready" : "degraded",
-      summary:
-        problems.length === 0
-          ? warnings.length === 0
-            ? "ready"
-            : `ready; warning: ${warnings[0]}`
-          : `degraded: ${problems[0]}`,
-      details: [
-        ...details,
-        ...warnings.map((warning) => `warning: ${warning}`),
-        ...problems.map((problem) => `problem: ${problem}`),
-      ],
-    };
-  }
-
-  private matrixMachine(): MatrixMachine | undefined {
-    return (
-      this.#client as unknown as {
-        crypto?: { engine?: { machine?: MatrixMachine } };
-      }
-    )?.crypto?.engine?.machine;
-  }
-
-  private async roomDisplayName(
-    roomId: string,
-  ): Promise<{ displayName?: string }> {
-    const displayName =
-      (await this.roomName(roomId)) ??
-      (await this.roomAlias(roomId)) ??
-      (await this.memberRoomName(roomId));
-
-    return displayName ? { displayName } : {};
-  }
-
-  private async roomName(roomId: string): Promise<string | undefined> {
-    try {
-      const event = await this.#client?.getRoomStateEvent(
-        roomId,
-        "m.room.name",
-        "",
-      );
-      return typeof event?.name === "string" && event.name.trim()
-        ? event.name.trim()
-        : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async roomAlias(roomId: string): Promise<string | undefined> {
-    try {
-      return (await this.#client?.getPublishedAlias(roomId)) ?? undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async memberRoomName(roomId: string): Promise<string | undefined> {
-    if (!this.#client || !this.#botUserId) {
-      return undefined;
-    }
-
-    try {
-      const members =
-        await this.#client.getJoinedRoomMembersWithProfiles(roomId);
-      const otherMembers = Object.entries(members).filter(
-        ([userId]) => userId !== this.#botUserId,
-      );
-
-      if (otherMembers.length === 0) {
-        return undefined;
-      }
-
-      if (otherMembers.length === 1) {
-        const [userId, profile] = otherMembers[0] ?? [];
-        return displayNameFromProfile(profile) ?? userId;
-      }
-
-      const names = otherMembers
-        .slice(0, 3)
-        .map(([userId, profile]) => displayNameFromProfile(profile) ?? userId);
-      const suffix = otherMembers.length > names.length ? "..." : "";
-      return `${names.join(", ")}${suffix}`;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async handleMessage(
-    roomId: string,
-    event: MatrixEvent,
-  ): Promise<void> {
-    if (!this.#client || !this.#botUserId) {
-      return;
-    }
-
-    const skipReason = shouldSkipEvent(
-      event,
-      this.#botUserId,
-      this.#connectedAt,
-      this.#joinedRooms,
-      roomId,
-    );
-    if (skipReason) {
-      return;
-    }
-
-    const messageText = event.content?.body ?? "";
-    const attachment = mediaAttachmentFromMatrixContent(event.content);
-    const userId = event.sender;
-    if ((!messageText && !attachment) || !userId) {
-      return;
-    }
-
-    let memberCount = this.#roomMemberCount.get(roomId);
-    if (memberCount === undefined) {
-      try {
-        const members = await this.#client.getJoinedRoomMembers(roomId);
-        memberCount = members.length;
-        this.#roomMemberCount.set(roomId, memberCount);
-      } catch {
-        memberCount = 2;
-      }
-    }
-
-    const isGroupChat = memberCount > 2;
-    const wasMentioned = isGroupChat
-      ? wasBotMentioned(messageText, this.#botUserId)
-      : false;
-    const content = wasMentioned
-      ? stripBotMention(messageText, this.#botUserId)
-      : messageText;
-
-    if (!content && !attachment) {
-      return;
-    }
-
-    this.#messageHandler?.({
-      chatId: roomId,
-      transport: this.type,
-      content,
-      username: extractUsername(userId),
-      userId,
-      timestamp: event.origin_server_ts ?? Date.now(),
-      isGroupChat,
-      wasMentioned,
-      ...(attachment ? { attachments: [attachment] } : {}),
-      ...(event.event_id ? { messageId: event.event_id } : {}),
-      ...messageReferences(roomId, event.content, this.type),
-    });
-  }
-
-  private handleReaction(roomId: string, event: MatrixEvent): void {
-    if (!this.#botUserId) {
-      return;
-    }
-
-    const skipReason = shouldSkipReactionEvent(
-      event,
-      this.#botUserId,
-      this.#connectedAt,
-      this.#joinedRooms,
-      roomId,
-    );
-    if (skipReason) {
-      return;
-    }
-
-    const relatesTo = event.content?.["m.relates_to"];
-    if (
-      relatesTo?.rel_type !== "m.annotation" ||
-      typeof relatesTo.event_id !== "string" ||
-      typeof relatesTo.key !== "string"
-    ) {
-      return;
-    }
-
-    const userId = event.sender;
-    this.#reactionHandler?.({
-      chatId: roomId,
-      transport: this.type,
-      messageId: relatesTo.event_id,
-      reaction: relatesTo.key,
-      timestamp: event.origin_server_ts ?? Date.now(),
-      ...(event.event_id ? { reactionId: event.event_id } : {}),
-      ...(userId ? { userId, username: extractUsername(userId) } : {}),
-    });
-  }
-
-  private refreshRoomMemberCount(roomId: string): void {
-    this.#client
-      ?.getJoinedRoomMembers(roomId)
-      .then((members) => this.#roomMemberCount.set(roomId, members.length))
-      .catch(() => {});
-  }
-
-  private stopClient(client: MatrixClient): void {
-    try {
-      client.stop();
-    } catch {
-      // Matrix client may already be stopping.
-    }
-  }
-
-  private resetClientState(): void {
-    this.#client = undefined;
-    this.#isConnected = false;
-    this.#botUserId = undefined;
-    this.#joinedRooms.clear();
-    this.#pendingInvites.clear();
-    this.#roomMemberCount.clear();
-    this.#connectedAt = 0;
-  }
-}
-
-function inviteDetails(event: MatrixInviteEvent): {
-  displayName?: string;
-  inviter?: string;
-} {
-  const inviteRoomState = event.unsigned?.invite_room_state ?? [];
-  const roomName = inviteRoomState.find(
-    (state) => state.type === "m.room.name" && state.state_key === "",
-  )?.content?.name;
-  const canonicalAlias = inviteRoomState.find(
-    (state) =>
-      state.type === "m.room.canonical_alias" && state.state_key === "",
-  )?.content?.alias;
-
-  return {
-    ...(typeof roomName === "string" && roomName.trim()
-      ? { displayName: roomName.trim() }
-      : typeof canonicalAlias === "string" && canonicalAlias.trim()
-        ? { displayName: canonicalAlias.trim() }
-        : {}),
-    ...(event.sender ? { inviter: event.sender } : {}),
-  };
-}
 
 export function messageReferences(
   roomId: string,
@@ -866,7 +131,19 @@ export function matrixRelatesTo(
 export function createMatrixProvider(
   config: TransportConfig,
   context: { stateDir: string },
-): MatrixProvider {
+): TransportProvider {
+  const implementation =
+    config.settings?.implementation ?? config.settings?.adapter;
+  if (
+    implementation !== undefined &&
+    implementation !== "mautrix" &&
+    implementation !== "sidecar"
+  ) {
+    throw new MatrixConfigError(
+      `Unsupported Matrix implementation: ${String(implementation)}`,
+    );
+  }
+
   return new MatrixProvider(
     parseMatrixConfig(config, context.stateDir),
     context.stateDir,
@@ -901,6 +178,15 @@ export function parseMatrixConfig(
     ...(typeof settings.encryption === "boolean"
       ? { encryption: settings.encryption }
       : {}),
+    ...(typeof settings.pythonPath === "string"
+      ? { pythonPath: settings.pythonPath }
+      : {}),
+    ...(typeof settings.sidecarPath === "string"
+      ? { sidecarPath: settings.sidecarPath }
+      : {}),
+    ...(typeof settings.startupTimeoutMs === "number"
+      ? { startupTimeoutMs: settings.startupTimeoutMs }
+      : {}),
     ...(settings.selfCrossSign === "reset" ||
     typeof settings.selfCrossSign === "boolean"
       ? { selfCrossSign: settings.selfCrossSign }
@@ -914,114 +200,31 @@ export function parseMatrixConfig(
   };
 }
 
-function summarizeSyncToDevice(response: unknown): string {
-  if (!isRecord(response)) {
-    return "to-device:none";
-  }
-  const toDevice = recordField(response, "to_device");
-  const events = toDevice?.events;
-  if (!Array.isArray(events)) {
-    return "to-device:none";
-  }
-  return summarizeRawToDeviceEvents(events);
+function readAccessToken(stateDir?: string): string | undefined {
+  return readSecretFile(stateDir, "matrix-access-token.txt");
 }
 
-function summarizeRawToDeviceEvents(events: unknown[]): string {
-  if (events.length === 0) {
-    return "to-device:0";
-  }
-  return `to-device:${events.length} ${events
-    .map((event) => {
-      if (!isRecord(event)) {
-        return typeof event;
-      }
-      return `${stringField(event, "type") ?? "unknown"} from:${stringField(event, "sender") ?? "unknown"}`;
-    })
-    .join(", ")}`;
-}
-
-function summarizeToDeviceRecipients(
-  messages: Record<string, Record<string, unknown>>,
-): string {
-  return Object.entries(messages)
-    .map(([userId, devices]) => `${userId}:${Object.keys(devices).join("|")}`)
-    .join(", ");
-}
-
-function summarizeToDeviceEvent(event: unknown): string {
-  if (Array.isArray(event)) {
-    return `array length:${event.length} items:${event.map((item) => (isRecord(item) ? summarizeToDeviceRecord(item) : summarizeUnknownShape(item))).join(",")}`;
-  }
-  if (!isRecord(event)) {
-    return summarizeUnknownShape(event);
-  }
-
-  return summarizeToDeviceRecord(event);
-}
-
-function summarizeToDeviceRecord(event: Record<string, unknown>): string {
-  const type =
-    stringField(event, "type") ?? stringField(event, "event_type") ?? "unknown";
-  const content =
-    recordField(event, "content") ?? recordField(event, "decrypted") ?? event;
-  const roomId = stringField(content, "room_id") ?? "";
-  const algorithm = stringField(content, "algorithm") ?? "";
-  const sessionId = stringField(content, "session_id")
-    ? "session_id:present"
-    : "";
-  const code = stringField(content, "code")
-    ? `code:${stringField(content, "code")}`
-    : "";
-  const reason = stringField(content, "reason")
-    ? `reason:${stringField(content, "reason")}`
-    : "";
-  const keys = Object.keys(event).join("|");
-  const contentKeys = isRecord(content) ? Object.keys(content).join("|") : "";
-  return [
-    type,
-    roomId,
-    algorithm,
-    sessionId,
-    code,
-    reason,
-    `keys:${keys}`,
-    `content:${contentKeys}`,
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
-function stringField(
-  value: Record<string, unknown>,
-  field: string,
+function readSecretFile(
+  stateDir: string | undefined,
+  fileName: string,
 ): string | undefined {
-  return typeof value[field] === "string" ? value[field] : undefined;
-}
-
-function recordField(
-  value: Record<string, unknown>,
-  field: string,
-): Record<string, unknown> | undefined {
-  return isRecord(value[field]) ? value[field] : undefined;
-}
-
-function summarizeUnknownShape(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `array:${value.length}`;
+  if (!stateDir) return undefined;
+  const filePath = join(stateDir, fileName);
+  try {
+    const stat = statSync(filePath);
+    if ((stat.mode & 0o077) !== 0) {
+      return undefined;
+    }
+    const value = readFileSync(filePath, "utf8").trim();
+    return value || undefined;
+  } catch {
+    return undefined;
   }
-  if (isRecord(value)) {
-    return `object:${Object.keys(value).join("|")}`;
-  }
-  return typeof value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 export function createMatrixLogger(
   output: Pick<NodeJS.WritableStream, "write"> = process.stderr,
-): ILogger {
+): MatrixLogger {
   const write = (level: string, module: string, ...args: unknown[]) => {
     output.write(
       `${new Date().toUTCString()} [${level}] [${module}] ${args.map(formatLogArg).join(" ")}\n`,
@@ -1036,7 +239,9 @@ export function createMatrixLogger(
   };
 }
 
-export function createSyncFilterLogger(defaultLogger: ILogger): ILogger {
+export function createSyncFilterLogger(
+  defaultLogger: MatrixLogger,
+): MatrixLogger {
   return {
     info: (module, ...args) => defaultLogger.info(module, ...args),
     warn: (module, ...args) => defaultLogger.warn(module, ...args),
@@ -1070,18 +275,4 @@ function formatLogArg(arg: unknown): string {
   } catch {
     return String(arg);
   }
-}
-
-function displayNameFromProfile(profile: unknown): string | undefined {
-  if (typeof profile !== "object" || profile === null) {
-    return undefined;
-  }
-
-  const displayName =
-    (profile as { display_name?: unknown; displayname?: unknown })
-      .display_name ?? (profile as { displayname?: unknown }).displayname;
-
-  return typeof displayName === "string" && displayName.trim()
-    ? displayName.trim()
-    : undefined;
 }

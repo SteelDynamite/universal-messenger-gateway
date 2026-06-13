@@ -20,9 +20,9 @@ deferred until a concrete process-lifetime problem exists.
 Runtime state defaults to `./state` and can be overridden with
 `UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR`. The intended shape is one gateway per agent.
 Transport config loads from `state/config.json`; `umg setup matrix` creates it
-interactively. Matrix secrets can live in `state/matrix-access-token.txt`,
-`state/matrix-recovery-key.txt`, and `state/matrix-password.txt` with `600` permissions.
-Matrix uses `state/matrix-store.json` and `state/matrix-crypto/` for SDK and E2EE state.
+interactively. Matrix access tokens live in `state/matrix-access-token.txt` with `600` permissions.
+The default Matrix adapter is the Python `mautrix` sidecar; it stores SQLite crypto state in
+`state/mautrix-crypto.db`.
 
 The standard I/O contract is the actual product — pin it before adding features. See the
 [glossary](GLOSSARY.md) for terms.

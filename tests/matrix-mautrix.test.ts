@@ -1,0 +1,182 @@
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, expect, test } from "vitest";
+import {
+  MautrixMatrixDecryptionError,
+  MautrixMatrixProvider,
+  createConfiguredTransports,
+  parseMautrixMatrixConfig,
+} from "../src/index.js";
+import type {
+  InboundMessage,
+  InboundReaction,
+  TransportInvite,
+} from "../src/index.js";
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  process.env.UMG_FAKE_MAUTRIX_LOG = undefined;
+  await Promise.all(
+    tempDirs.map((dir) => rm(dir, { recursive: true, force: true })),
+  );
+  tempDirs.length = 0;
+});
+
+test("default Matrix factory can select the mautrix sidecar implementation", async () => {
+  const stateDir = await tempStateDir();
+  const sidecarPath = await writeFakeSidecar(stateDir);
+  const logPath = join(stateDir, "fake-sidecar.log");
+  process.env.UMG_FAKE_MAUTRIX_LOG = logPath;
+
+  await writeFile(join(stateDir, "matrix-access-token.txt"), "token\n");
+  await chmod(join(stateDir, "matrix-access-token.txt"), 0o600);
+
+  const transports = createConfiguredTransports(
+    {
+      transports: {
+        matrix: {
+          enabled: true,
+          settings: {
+            homeserverUrl: "https://matrix.example",
+            implementation: "mautrix",
+            pythonPath: process.execPath,
+            sidecarPath,
+          },
+        },
+      },
+    },
+    { stateDir },
+  );
+
+  expect(transports[0]).toBeInstanceOf(MautrixMatrixProvider);
+  const provider = transports[0] as MautrixMatrixProvider;
+  const messages: InboundMessage[] = [];
+  const reactions: InboundReaction[] = [];
+  const invites: TransportInvite[] = [];
+  const errors: unknown[] = [];
+  provider.onMessage((message) => messages.push(message));
+  provider.onReaction((reaction) => reactions.push(reaction));
+  provider.onInvite((invite) => invites.push(invite));
+  provider.onError((error) => errors.push(error));
+
+  await provider.connect();
+  expect(await provider.listChats()).toEqual([
+    { chatId: "!room", displayName: "Room" },
+  ]);
+  expect(await provider.health()).toEqual([
+    { category: "matrix-e2ee", status: "ready", summary: "fake ready" },
+  ]);
+  await provider.sendMessage(
+    "!room",
+    "hello **matrix**",
+    { transport: "matrix", chatId: "!room", messageId: "$reply" },
+    { transport: "matrix", chatId: "!room", messageId: "$thread" },
+  );
+  await provider.sendReaction("!room", "$event", "👍");
+  await provider.sendTyping("!room");
+  await provider.acceptInvite("!invite");
+  await provider.disconnect();
+
+  await waitFor(
+    () =>
+      messages.length === 1 &&
+      reactions.length === 1 &&
+      invites.length === 1 &&
+      errors.length === 1,
+  );
+  expect(messages[0]).toMatchObject({
+    transport: "matrix",
+    chatId: "!room",
+    content: "from sidecar",
+  });
+  expect(reactions[0]).toMatchObject({
+    transport: "matrix",
+    chatId: "!room",
+    messageId: "$event",
+    reaction: "👍",
+  });
+  expect(invites[0]).toEqual({ inviteId: "!invite", inviter: "@a:example" });
+  expect(errors[0]).toBeInstanceOf(MautrixMatrixDecryptionError);
+  expect(errors[0]).toMatchObject({ eventId: "$encrypted" });
+
+  const log = (await readFile(logPath, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(log).toContainEqual(
+    expect.objectContaining({
+      type: "connect",
+      homeserverUrl: "https://matrix.example",
+      accessToken: "token",
+      stateDir,
+      encryption: true,
+    }),
+  );
+  expect(log).toContainEqual(
+    expect.objectContaining({
+      type: "send_message",
+      chatId: "!room",
+      text: "hello **matrix**",
+      formattedBody: expect.stringContaining("<strong>matrix</strong>"),
+      replyTo: { transport: "matrix", chatId: "!room", messageId: "$reply" },
+      threadTo: { transport: "matrix", chatId: "!room", messageId: "$thread" },
+    }),
+  );
+});
+
+test("parses mautrix settings with token from state file", async () => {
+  const stateDir = await tempStateDir();
+  await writeFile(join(stateDir, "matrix-access-token.txt"), "token\n");
+  await chmod(join(stateDir, "matrix-access-token.txt"), 0o600);
+
+  expect(
+    parseMautrixMatrixConfig(
+      {
+        enabled: true,
+        settings: {
+          homeserverUrl: "https://matrix.example",
+          encryption: false,
+          pythonPath: "/python",
+          sidecarPath: "/sidecar.py",
+          startupTimeoutMs: 1234,
+        },
+      },
+      stateDir,
+    ),
+  ).toEqual({
+    homeserverUrl: "https://matrix.example",
+    accessToken: "token",
+    encryption: false,
+    pythonPath: "/python",
+    sidecarPath: "/sidecar.py",
+    startupTimeoutMs: 1234,
+  });
+});
+
+async function tempStateDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "umg-mautrix-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+async function writeFakeSidecar(dir: string): Promise<string> {
+  const path = join(dir, "fake-mautrix-sidecar.mjs");
+  await writeFile(
+    path,
+    `import { appendFileSync } from "node:fs";\nimport { createInterface } from "node:readline";\nconst log = process.env.UMG_FAKE_MAUTRIX_LOG;\nfunction send(value) { process.stdout.write(JSON.stringify(value) + "\\n"); }\nfor await (const line of createInterface({ input: process.stdin })) {\n  const command = JSON.parse(line);\n  if (log) appendFileSync(log, JSON.stringify(command) + "\\n");\n  if (command.type === "connect") {\n    send({ id: command.id, ok: true, result: { userId: "@bot:example" } });\n    send({ type: "message", message: { transport: "matrix", chatId: "!room", content: "from sidecar", timestamp: 1, isGroupChat: false, wasMentioned: false } });\n    send({ type: "reaction", reaction: { transport: "matrix", chatId: "!room", messageId: "$event", reaction: "👍", timestamp: 1 } });\n    send({ type: "invite", invite: { inviteId: "!invite", inviter: "@a:example" } });\n    send({ type: "error", category: "matrix-decryption", eventId: "$encrypted", error: "failed" });\n  } else if (command.type === "list_chats") {\n    send({ id: command.id, ok: true, result: [{ chatId: "!room", displayName: "Room" }] });\n  } else if (command.type === "list_invites") {\n    send({ id: command.id, ok: true, result: [{ inviteId: "!invite" }] });\n  } else if (command.type === "health") {\n    send({ id: command.id, ok: true, result: [{ category: "matrix-e2ee", status: "ready", summary: "fake ready" }] });\n  } else {\n    send({ id: command.id, ok: true });\n  }\n}\n`,
+  );
+  return path;
+}
+
+async function waitFor(read: () => boolean): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 1000) {
+    if (read()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("timed out waiting for condition");
+}

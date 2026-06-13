@@ -60,7 +60,8 @@ async function setupMatrix({
   stateDir: string;
   question: (query: string) => Promise<string>;
 }): Promise<void> {
-  await mkdir(stateDir, { recursive: true });
+  await mkdir(stateDir, { mode: 0o700, recursive: true });
+  await chmod(stateDir, 0o700);
   const config = await loadGatewayConfig(stateDir);
   const existing = config.transports.matrix?.settings ?? {};
   const existingHomeserver = stringSetting(existing.homeserverUrl);
@@ -79,19 +80,10 @@ async function setupMatrix({
     existingEncryption,
   );
   const accessTokenFile = join(stateDir, "matrix-access-token.txt");
-  const recoveryKeyFile = join(stateDir, "matrix-recovery-key.txt");
-  const recoveryKeyExists = await fileExists(recoveryKeyFile);
   const accessToken = await promptSecret(output, question, {
     label: "Access token",
     existingFile: accessTokenFile,
   });
-  const recoveryKey = encryption
-    ? await promptSecret(output, question, {
-        label: "Recovery key for E2EE (optional)",
-        existingFile: recoveryKeyFile,
-        optional: true,
-      })
-    : undefined;
 
   const {
     accessToken: _accessToken,
@@ -113,17 +105,8 @@ async function setupMatrix({
   if (accessToken !== undefined) {
     await writeSecret(accessTokenFile, accessToken);
   }
-  if (recoveryKey !== undefined) {
-    await writeSecret(recoveryKeyFile, recoveryKey);
-  }
-
-  if (encryption && recoveryKey === undefined && !recoveryKeyExists) {
-    output.write(
-      "Matrix E2EE warning: no recovery key was stored; connect health will be degraded until SSSS cross-signing secrets can be imported.\n",
-    );
-  }
   if (encryption) {
-    output.write("Matrix E2EE health will be checked on connect.\n");
+    output.write("Matrix E2EE will use the mautrix SQLite crypto store.\n");
   }
   output.write(`Matrix configured in ${stateDir}. Run: umg chat\n`);
 }

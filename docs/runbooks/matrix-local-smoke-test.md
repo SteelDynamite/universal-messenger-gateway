@@ -24,12 +24,11 @@ Manual setup: create `state/config.json`:
 }
 ```
 
-Store secrets in local files:
+Store the access token in a local file:
 
 ```bash
 printf '%s' 'YOUR_ACCESS_TOKEN' > state/matrix-access-token.txt
-printf '%s' 'YOUR_RECOVERY_KEY' > state/matrix-recovery-key.txt
-chmod 600 state/matrix-access-token.txt state/matrix-recovery-key.txt
+chmod 600 state/matrix-access-token.txt
 ```
 
 Run the interactive chat harness:
@@ -39,22 +38,12 @@ npm run build
 node dist/cli.js chat
 ```
 
-On connect, `umg chat` evaluates Matrix E2EE health. `/status` prints the current
-`matrix-e2ee` check with details. `ready` means the local crypto machine is available, a
-recovery key was available for SSSS import, cross-signing identity exists, and the device is
-cross-signed. Key backup status is reported as a warning because missing local backup does
-not prevent current room-key sharing. `degraded` means encrypted DMs may still work, but
-first-message decrypt failures are more likely and should be debugged before relying on the
-session.
+On connect, `umg chat` starts the Python `mautrix` sidecar. `/status` prints the current
+`matrix-e2ee` check with details. `ready` means the sidecar and SQLite crypto store are available.
 
 Matrix state is written under `./state` by default:
 
-- `state/matrix-store.json` — Matrix SDK sync/storage state.
-- `state/matrix-crypto/` — Rust crypto store when E2EE is enabled.
-
-For cross-signing, prefer a recovery key from an existing Element secure backup. When a recovery key is available, startup imports the existing cross-signing identity from
-Secret Storage even if the Matrix device is already signed. A signed device alone does not
-prove the local crypto store has imported the private cross-signing secrets.
+- `state/mautrix-crypto.db` — Python `mautrix` SQLite crypto/state store.
 
 If a password is needed for a reset flow, store it the same way:
 
@@ -63,14 +52,13 @@ printf '%s' 'YOUR_ACCOUNT_PASSWORD' > state/matrix-password.txt
 chmod 600 state/matrix-password.txt
 ```
 
-Environment variables override local files:
+Local development needs Python dependencies installed. Use a venv and point UMG at it:
 
-- `UNIVERSAL_MESSENGER_GATEWAY_MATRIX_ACCESS_TOKEN`
-- `UNIVERSAL_MESSENGER_GATEWAY_MATRIX_ACCESS_TOKEN_FILE`
-- `UNIVERSAL_MESSENGER_GATEWAY_MATRIX_RECOVERY_KEY`
-- `UNIVERSAL_MESSENGER_GATEWAY_MATRIX_RECOVERY_KEY_FILE`
-- `UNIVERSAL_MESSENGER_GATEWAY_MATRIX_ACCOUNT_PASSWORD`
-- `UNIVERSAL_MESSENGER_GATEWAY_MATRIX_PASSWORD_FILE`
+```bash
+python3 -m venv /tmp/umg-mautrix-venv
+/tmp/umg-mautrix-venv/bin/pip install -r requirements-mautrix.txt
+export UMG_MATRIX_MAUTRIX_PYTHON=/tmp/umg-mautrix-venv/bin/python
+```
 
 For an encrypted DM invite smoke test:
 

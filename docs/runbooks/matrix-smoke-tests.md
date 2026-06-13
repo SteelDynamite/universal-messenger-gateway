@@ -6,7 +6,7 @@ Run live Matrix round-trips between three controlled test accounts.
 
 - Three Matrix accounts on a homeserver that allows private encrypted rooms.
 - Access tokens for all accounts.
-- Optional account passwords and recovery keys if cross-signing setup needs them.
+- Optional account passwords. Password variables are recommended so live smoke can create fresh devices.
 - A gitignored state directory; defaults to `state/matrix-smoke/`.
 
 The runner stores each account under a state subdirectory derived from its Matrix user ID. This
@@ -36,16 +36,51 @@ Optional variables:
 - `UMG_MATRIX_SMOKE_STATE_DIR` — defaults to `state/matrix-smoke`.
 - `UMG_MATRIX_A_ACCOUNT_PASSWORD`, `UMG_MATRIX_B_ACCOUNT_PASSWORD`, and
   `UMG_MATRIX_C_ACCOUNT_PASSWORD`.
-- `UMG_MATRIX_A_RECOVERY_KEY`, `UMG_MATRIX_B_RECOVERY_KEY`, and
-  `UMG_MATRIX_C_RECOVERY_KEY`.
+- `UMG_MATRIX_MAUTRIX_PYTHON` — Python executable with `requirements-mautrix.txt` installed. In pi-bot-stack this is available through the runtime PATH; local development usually sets this to a venv Python.
 
-Quote values that contain spaces, especially Matrix recovery keys:
+## Python mautrix setup
+
+The default Matrix adapter is the Python `mautrix` sidecar. Install Python deps in a venv for local live smoke:
 
 ```sh
-UMG_MATRIX_A_RECOVERY_KEY='word1 word2 word3 ...'
+python3 -m venv /tmp/umg-mautrix-venv
+/tmp/umg-mautrix-venv/bin/pip install -r requirements-mautrix.txt
+set -a && source state/matrix-smoke.env && set +a && \
+  UMG_MATRIX_SMOKE=1 \
+  UMG_MATRIX_MAUTRIX_SMOKE=1 \
+  UMG_MATRIX_MAUTRIX_PYTHON=/tmp/umg-mautrix-venv/bin/python \
+  npx vitest run tests/matrix-mautrix-smoke.test.ts
 ```
 
-## Current Coverage
+The focused mautrix smoke uses accounts A, B, and C. Password variables are recommended so each run logs in with fresh device IDs and avoids stale crypto state.
+
+Focused mautrix smoke command:
+
+```sh
+set -a && source state/matrix-smoke.env && set +a && \
+  UMG_MATRIX_SMOKE=1 \
+  UMG_MATRIX_MAUTRIX_SMOKE=1 \
+  UMG_MATRIX_MAUTRIX_PYTHON=/tmp/umg-mautrix-venv/bin/python \
+  npx vitest run tests/matrix-mautrix-smoke.test.ts
+```
+
+Current default Matrix smoke coverage:
+
+- Plaintext Matrix send/receive through UMG-shaped messages.
+- Formatted outbound text body.
+- Invite accept and reject.
+- Encrypted Matrix send/receive.
+- Direct replies, threads, and replies inside threads.
+- Reactions.
+- Typing command path.
+- Media attachment metadata.
+- Group mention/member-count metadata.
+- Gateway JSON-lines send/event path.
+- Leave room.
+- Process-exit shutdown state reset.
+- Encrypted-room decrypt after stopping and restarting the sidecar with the same SQLite crypto DB.
+
+## Full Matrix smoke coverage
 
 - Account A creates a private encrypted room and invites account B.
 - Account B sees pending invite metadata and accepts explicitly. `inviter` is required;

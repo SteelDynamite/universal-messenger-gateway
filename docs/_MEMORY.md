@@ -1,39 +1,27 @@
 # universal-messenger-gateway — Project State
 
-Current active goal: ready to start [Phase 2 — Connect an agent](features/phase-2-connect-an-agent.md).
+Current active state: mautrix Matrix adoption is implemented; review/commit/deploy remains.
 
-## Active work
+## Completed Matrix adoption state
 
-None. Do not start Phase 2 until explicitly asked.
+- Default Matrix adapter: Python `mautrix` sidecar.
+- TypeScript adapter: `src/transports/matrix-mautrix.ts`.
+- Python sidecar: `src/transports/matrix-mautrix-sidecar.py`.
+- Runtime deps: `requirements-mautrix.txt`.
+- Matrix state: `mautrix-crypto.db` under the transport state dir.
+- `matrix-bot-sdk`, `@matrix-org/matrix-sdk-crypto-nodejs`, and `request` are removed from production dependencies. `matrix-bot-sdk` remains dev-only for smoke control clients.
+- Recovery-key import / cross-signing health are not required for the mautrix path; persistent encrypted restart decrypt is covered by live smoke.
+- Live smoke covers plaintext, formatted text, encrypted send/receive, replies, threads, reactions, typing command path, invites, reject, leave, media metadata, group mention/member count, gateway JSON-lines path, process-exit shutdown, and encrypted decrypt after sidecar restart with stable SQLite crypto DB.
 
-## Phase 1 closeout
+## Carry-forward
 
-[Phase 1 — Standalone gateway + cli](features/phase-1-standalone-gateway-and-cli.md) is complete.
-The standalone stdio gateway, interactive chat cli, Matrix transport, Matrix E2EE support,
-explicit invite accept/reject, and live Matrix smoke runner exist. Daemon/socket runtime
-control is deferred by [ADR 0005](decisions/0005-use-stdio-json-lines-for-gateway-io.md)
-until a concrete process-lifetime problem appears.
-
-The public cli is now `umg chat` and `umg gateway`; top-level admin commands were removed.
-Admin operations run inside an attached session: chat slash commands or gateway JSON-lines
-admin commands. Chat is now a human-friendly wrapper over a shared gateway client path for
-message/admin commands; see [ADR 0011](decisions/0011-chat-is-a-wrapper-over-gateway-protocol.md).
-
-Last closeout verification passed locally:
-
-- `npm run typecheck`
-- `npm run lint`
-- `npm test`
-- `npm run build`
-- `set -a && source state/matrix-smoke.env && set +a && UMG_MATRIX_SMOKE=1 npm run test:matrix-smoke`
+- Commit UMG, Forge docs, and pi-bot-stack packaging changes.
+- Deploy/update pi-bot-stack after UMG is pushed.
+- Observe first production Matrix run using `mautrix-crypto.db`.
 
 ## Known carry-forward notes
 
-- `matrix-bot-sdk` has inherited npm audit findings through `request`; see
-  [ADR 0009](decisions/0009-use-matrix-bot-sdk-for-first-matrix-transport.md).
-- Interactive chat mode uses a hard process exit on quit; see
-  [tech-debt 0001](techdebt/0001-bun-matrix-crypto-hard-exit.md).
-- Rich client behavior is tracked in
-  [client capability backlog](features/client-capability-backlog.md) and
-  [rich message capabilities](features/rich-message-capabilities.md).
+- Matrix audit follow-up now uses [ADR 0015](decisions/0015-adopt-mautrix-matrix-transport.md).
+- Interactive chat mode uses a hard process exit on quit; see [tech-debt 0001](techdebt/0001-bun-matrix-crypto-hard-exit.md).
+- Rich client behavior is tracked in [client capability backlog](features/client-capability-backlog.md) and [rich message capabilities](features/rich-message-capabilities.md).
 - Local Matrix smoke-test state exists under gitignored `state/`. Do not commit `state/`.
