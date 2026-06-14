@@ -36,6 +36,8 @@ Optional variables:
 - `UMG_MATRIX_SMOKE_STATE_DIR` — defaults to `state/matrix-smoke`.
 - `UMG_MATRIX_A_ACCOUNT_PASSWORD`, `UMG_MATRIX_B_ACCOUNT_PASSWORD`, and
   `UMG_MATRIX_C_ACCOUNT_PASSWORD`.
+- `UMG_MATRIX_A_RECOVERY_KEY`, `UMG_MATRIX_B_RECOVERY_KEY`, and
+  `UMG_MATRIX_C_RECOVERY_KEY` — enable recovery-key import and device-trust assertions.
 - `UMG_MATRIX_MAUTRIX_PYTHON` — Python executable with `requirements-mautrix.txt` installed. In pi-bot-stack this is available through the runtime PATH; local development usually sets this to a venv Python.
 - `UMG_MATRIX_DEBUG_ROOM_KEYS=1` — logs credential-safe mautrix E2EE diagnostics: key upload, sync callbacks, to-device event types, room keys, withheld keys, key requests, decrypt failures, and cross-signing import.
 
@@ -80,6 +82,7 @@ Current default Matrix smoke coverage:
 - Leave room.
 - Process-exit shutdown state reset.
 - Encrypted-room decrypt after stopping and restarting the sidecar with the same SQLite crypto DB.
+- Fresh-device E2EE health trust assertions when recovery keys are configured.
 
 ## Full Matrix smoke coverage
 
@@ -103,6 +106,7 @@ Current default Matrix smoke coverage:
 - Account B rejects a second invite without joining.
 - Account B's process-exit shutdown path clears connection state.
 - All accounts leave smoke-test rooms during cleanup.
+- When recovery keys are configured, E2EE health must report recovery-key import, cross-signing identity, self-signed current device, and own-device trust.
 - The test fails if any participant emits an unexpected transport error.
 
 The test is skipped unless `UMG_MATRIX_SMOKE=1` is set, so normal `npm test` runs do not

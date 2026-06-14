@@ -196,6 +196,9 @@ runMatrixSmoke(
       config,
       loggedInC.stateName,
     );
+    await expectTrustedE2eeHealth(accountA, loggedInA.account);
+    await expectTrustedE2eeHealth(accountB, loggedInB.account);
+    await expectTrustedE2eeHealth(accountC, loggedInC.account);
 
     const roomId = await controlClient.createRoom({
       preset: "private_chat",
@@ -805,6 +808,26 @@ function registerParticipant(provider: MatrixProvider): SmokeParticipant {
   participant.provider.onInvite((invite) => participant.invites.push(invite));
   participant.provider.onError((error) => participant.errors.push(error));
   return participant;
+}
+
+async function expectTrustedE2eeHealth(
+  participant: SmokeParticipant,
+  account: SmokeAccount,
+): Promise<void> {
+  if (!account.recoveryKey) {
+    return;
+  }
+
+  const health = await participant.provider.health?.();
+  const e2ee = health?.find((check) => check.category === "matrix-e2ee");
+  expect(e2ee).toMatchObject({ status: "ready" });
+  const details = e2ee?.details?.join("\n") ?? "";
+  expect(details).toContain("recovery key: present");
+  expect(details).toContain("cross-sign import: imported");
+  expect(details).toContain("cross-signing identity: present");
+  expect(details).toContain("device signature: self-signed");
+  expect(details).toContain("own device trust:");
+  expect(details).not.toContain(account.recoveryKey);
 }
 
 function requireMatrixProvider(

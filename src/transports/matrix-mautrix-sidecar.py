@@ -153,6 +153,7 @@ class Sidecar:
         self.room_member_count: dict[str, int] = {}
         self.connected_at = 0
         self.state_dir: Path | None = None
+        self.recovery_key: str | None = None
         self.cross_sign_status: dict[str, Any] = {"enabled": False}
 
     async def connect(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -162,6 +163,8 @@ class Sidecar:
         self.state_dir = state_dir
         homeserver_url = str(command["homeserverUrl"])
         access_token = str(command["accessToken"])
+        command_recovery_key = command.get("recoveryKey")
+        self.recovery_key = str(command_recovery_key).strip() if command_recovery_key else None
         encryption = bool(command.get("encryption", True))
 
         crypto_db = None
@@ -266,6 +269,7 @@ class Sidecar:
         self.pending_invites.clear()
         self.room_member_count.clear()
         self.state_dir = None
+        self.recovery_key = None
         self.cross_sign_status = {"enabled": False}
 
     def register_debug_handlers(self, client: Client) -> None:
@@ -447,7 +451,7 @@ class Sidecar:
 
     async def verify_with_recovery_key(self) -> None:
         crypto = require_crypto(self.crypto)
-        recovery_key = read_recovery_key(self.state_dir)
+        recovery_key = self.recovery_key or read_recovery_key(self.state_dir)
         self.cross_sign_status = await self.cross_sign_diagnostics("before")
         if not recovery_key:
             self.cross_sign_status = {

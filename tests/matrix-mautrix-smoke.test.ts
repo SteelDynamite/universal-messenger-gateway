@@ -29,6 +29,7 @@ type SmokeConfig = {
 type SmokeAccount = {
   accessToken: string;
   accountPassword?: string;
+  recoveryKey?: string;
 };
 
 type LoggedInSmokeAccount = {
@@ -129,6 +130,9 @@ runMatrixMautrixSmoke(
       config,
       loggedInC.stateName,
     );
+    await expectTrustedE2eeHealth(accountA, loggedInA.account);
+    await expectTrustedE2eeHealth(accountB, loggedInB.account);
+    await expectTrustedE2eeHealth(accountC, loggedInC.account);
 
     const plainRoomId = await controlClient.createRoom({
       preset: "private_chat",
@@ -574,6 +578,7 @@ async function connectParticipant(
     {
       homeserverUrl: config.homeserverUrl,
       accessToken: account.accessToken,
+      ...(account.recoveryKey ? { recoveryKey: account.recoveryKey } : {}),
       ...(config.pythonPath ? { pythonPath: config.pythonPath } : {}),
     },
     join(config.stateDir, "mautrix", name),
@@ -592,6 +597,27 @@ async function connectParticipant(
   await provider.connect();
   connectedParticipants.push(participant);
   return participant;
+}
+
+async function expectTrustedE2eeHealth(
+  participant: SmokeParticipant,
+  account: SmokeAccount,
+): Promise<void> {
+  if (!account.recoveryKey) {
+    return;
+  }
+
+  const e2ee = (await participant.provider.health()).find(
+    (check) => check.category === "matrix-e2ee",
+  );
+  expect(e2ee).toMatchObject({ status: "ready" });
+  const details = e2ee?.details?.join("\n") ?? "";
+  expect(details).toContain("recovery key: present");
+  expect(details).toContain("cross-sign import: imported");
+  expect(details).toContain("cross-signing identity: present");
+  expect(details).toContain("device signature: self-signed");
+  expect(details).toContain("own device trust:");
+  expect(details).not.toContain(account.recoveryKey);
 }
 
 async function cleanupJoinedRooms(
@@ -816,17 +842,26 @@ function matrixMautrixSmokeConfig(): SmokeConfig | undefined {
       ...(process.env.UMG_MATRIX_A_ACCOUNT_PASSWORD
         ? { accountPassword: process.env.UMG_MATRIX_A_ACCOUNT_PASSWORD }
         : {}),
+      ...(process.env.UMG_MATRIX_A_RECOVERY_KEY
+        ? { recoveryKey: process.env.UMG_MATRIX_A_RECOVERY_KEY }
+        : {}),
     },
     accountB: {
       accessToken: accountBAccessToken,
       ...(process.env.UMG_MATRIX_B_ACCOUNT_PASSWORD
         ? { accountPassword: process.env.UMG_MATRIX_B_ACCOUNT_PASSWORD }
         : {}),
+      ...(process.env.UMG_MATRIX_B_RECOVERY_KEY
+        ? { recoveryKey: process.env.UMG_MATRIX_B_RECOVERY_KEY }
+        : {}),
     },
     accountC: {
       accessToken: accountCAccessToken,
       ...(process.env.UMG_MATRIX_C_ACCOUNT_PASSWORD
         ? { accountPassword: process.env.UMG_MATRIX_C_ACCOUNT_PASSWORD }
+        : {}),
+      ...(process.env.UMG_MATRIX_C_RECOVERY_KEY
+        ? { recoveryKey: process.env.UMG_MATRIX_C_RECOVERY_KEY }
         : {}),
     },
     stateDir: process.env.UMG_MATRIX_SMOKE_STATE_DIR ?? "state/matrix-smoke",

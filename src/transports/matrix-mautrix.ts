@@ -23,6 +23,7 @@ export type MautrixMatrixConfig = {
   accessToken: string;
   encryption?: boolean;
   pythonPath?: string;
+  recoveryKey?: string;
   sidecarPath?: string;
   startupTimeoutMs?: number;
 };
@@ -138,6 +139,9 @@ export class MautrixMatrixProvider implements TransportProvider {
           accessToken: this.#config.accessToken,
           stateDir: this.#stateDir,
           encryption: this.#config.encryption !== false,
+          ...(this.#config.recoveryKey
+            ? { recoveryKey: this.#config.recoveryKey }
+            : {}),
         },
         this.#config.startupTimeoutMs ?? 30_000,
       );
