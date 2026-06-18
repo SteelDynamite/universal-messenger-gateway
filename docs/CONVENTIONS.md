@@ -24,6 +24,7 @@ Inherited from the source extension:
 - Standard relative Markdown links between docs — they render on GitHub and resolve in
   Obsidian.
 - ADRs are the one place that records the *why* of a decision.
+- Runbooks may include `## Observations` for one-off facts seen while using the procedure. Include date, symptom, context, outcome, and repeat count. Promote only repeated or actionable observations to techdebt, lessons, or policy.
 - Tech-debt notes describe debt being carried, why it was accepted, and what would retire it.
 
 ## Git
