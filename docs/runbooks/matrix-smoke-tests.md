@@ -111,3 +111,7 @@ Current default Matrix smoke coverage:
 
 The test is skipped unless `UMG_MATRIX_SMOKE=1` is set, so normal `npm test` runs do not
 contact Matrix.
+
+## Troubleshooting
+
+A single invite wait timeout near the reject-invite phase may be Matrix sync timing. Retry once. If it recurs, see [Matrix smoke invite wait flake](../techdebt/0004-matrix-smoke-invite-wait-flake.md).
