@@ -30,11 +30,11 @@ Make the Python `mautrix` sidecar the default Matrix adapter.
 
 Do not require recovery-key import or cross-signing health for adoption. Treat them as future health/observability enhancements rather than replacement blockers.
 
-Move `matrix-bot-sdk` and `@matrix-org/matrix-sdk-crypto-nodejs` out of production dependencies. Keep `matrix-bot-sdk` only as a dev/test dependency for live-smoke control clients and legacy helper tests.
+Remove `matrix-bot-sdk` and `@matrix-org/matrix-sdk-crypto-nodejs` from dependencies. Live smoke tests use a minimal REST control client instead of the SDK.
 
 ## Consequences
 
-- UMG production install no longer includes `matrix-bot-sdk` or `request`.
+- UMG installs no longer include `matrix-bot-sdk` or `request`.
 - Matrix runtime requires Python deps from `requirements-mautrix.txt`.
 - pi-bot-stack installs those deps into the runtime tool venv.
 - Matrix E2EE state now lives in `mautrix-crypto.db` for the default adapter.

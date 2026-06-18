@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
-import { MatrixAuth, MatrixClient } from "matrix-bot-sdk";
 import { afterEach, expect, test } from "vitest";
 import type {
   GatewayEvent,
@@ -13,6 +12,7 @@ import {
   TransportManager,
   runGatewayStdio,
 } from "../src/index.js";
+import { MatrixControlClient, passwordLogin } from "./matrix-control-client.js";
 
 const SMOKE_TIMEOUT_MS = 120_000;
 const WAIT_TIMEOUT_MS = 45_000;
@@ -110,7 +110,7 @@ runMatrixMautrixSmoke(
       accountCUserId,
       runId,
     );
-    const controlClient = new MatrixClient(
+    const controlClient = new MatrixControlClient(
       config.homeserverUrl,
       loggedInA.account.accessToken,
     );
@@ -538,7 +538,7 @@ async function matrixUserId(
   homeserverUrl: string,
   accessToken: string,
 ): Promise<string> {
-  return await new MatrixClient(homeserverUrl, accessToken).getUserId();
+  return await new MatrixControlClient(homeserverUrl, accessToken).getUserId();
 }
 
 async function loginSmokeAccount(
@@ -552,15 +552,15 @@ async function loginSmokeAccount(
     return { account, stateName: stateName(label, userId), userId };
   }
 
-  const client = await new MatrixAuth(config.homeserverUrl).passwordLogin(
+  const client = await passwordLogin(
+    config.homeserverUrl,
     userId,
     account.accountPassword,
     `umg-mautrix-smoke-${runId}`,
   );
-  const whoami = await client.getWhoAmI();
   return {
     account: { ...account, accessToken: client.accessToken },
-    stateName: stateName(label, `${userId}-${whoami.device_id ?? runId}`),
+    stateName: stateName(label, `${userId}-${client.deviceId ?? runId}`),
     userId,
   };
 }
@@ -647,8 +647,8 @@ async function cleanupSmokeAccount(
   homeserverUrl: string,
   accessToken: string,
 ): Promise<void> {
-  const client = new MatrixClient(homeserverUrl, accessToken);
-  const sync = await syncMatrixNow(homeserverUrl, accessToken);
+  const client = new MatrixControlClient(homeserverUrl, accessToken);
+  const sync = await client.syncNow();
   const joinedRoomIds = Object.keys(sync.rooms?.join ?? {});
   const invitedRoomIds = Object.keys(sync.rooms?.invite ?? {});
 
@@ -657,27 +657,6 @@ async function cleanupSmokeAccount(
       client.leaveRoom(roomId, "mautrix smoke cleanup").catch(() => {}),
     ),
   );
-}
-
-async function syncMatrixNow(
-  homeserverUrl: string,
-  accessToken: string,
-): Promise<{
-  rooms?: { join?: Record<string, unknown>; invite?: Record<string, unknown> };
-}> {
-  const response = await fetch(
-    `${homeserverUrl}/_matrix/client/v3/sync?timeout=0`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
-  );
-  if (!response.ok) {
-    throw new Error(`Matrix cleanup sync failed: ${response.status}`);
-  }
-  return (await response.json()) as {
-    rooms?: {
-      join?: Record<string, unknown>;
-      invite?: Record<string, unknown>;
-    };
-  };
 }
 
 async function waitForChat(
@@ -744,11 +723,11 @@ function requiredMessageId(message: InboundMessage): string {
 }
 
 async function rawMatrixEventType(
-  client: MatrixClient,
+  client: MatrixControlClient,
   roomId: string,
   eventId: string,
 ): Promise<string | undefined> {
-  const event = (await client.getRawEvent(roomId, eventId)) as {
+  const event = (await client.getEvent(roomId, eventId)) as {
     type?: string;
   };
   return event.type;

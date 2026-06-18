@@ -77,7 +77,7 @@ Do not start by patching `matrix-bot-sdk` unless this spike fails.
 - Done: Matrix smoke asserts recovery-key import, cross-signing identity, self-signed current device, and own-device trust when recovery keys are configured.
 - Done: `UMG_MATRIX_DEBUG_ROOM_KEYS=1` logs credential-safe E2EE diagnostics for key upload, sync callbacks, to-device room-key events, withheld keys, key requests, decrypt failures, and cross-signing import.
 - Done: pi-bot-stack installs `requirements-mautrix.txt` into the runtime tool venv and verifies imports.
-- Done: `matrix-bot-sdk` and `request` are removed from production dependencies.
+- Done: `matrix-bot-sdk` and `request` are removed from dependencies.
 - Decision: recovery-key import and cross-signing health are not required for the mautrix path; mautrix persists Olm/Megolm state in SQLite and smoke proves encrypted restart decrypt.
 
 ## Acceptance
@@ -86,7 +86,7 @@ Do not start by patching `matrix-bot-sdk` unless this spike fails.
 - Sidecar state lives under the configured UMG state directory.
 - Live Matrix plaintext smoke passes for the sidecar path.
 - Live Matrix encrypted restart smoke passes for the sidecar path.
-- `npm audit --omit=dev` reports no production vulnerabilities from `matrix-bot-sdk`/`request`.
+- `npm audit` reports no vulnerabilities from `matrix-bot-sdk`/`request`.
 
 ## Related
 

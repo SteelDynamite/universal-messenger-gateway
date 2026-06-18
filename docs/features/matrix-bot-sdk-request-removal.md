@@ -14,8 +14,9 @@ Completed by adopting the [mautrix transport spike](matrix-mautrix-transport.md)
 ## Outcome
 
 - `mautrix` is now the default Matrix adapter.
-- `matrix-bot-sdk` remains only as a dev/test dependency for Matrix smoke control clients and legacy helper tests.
-- `npm audit --omit=dev` reports no production vulnerabilities.
+- `matrix-bot-sdk` is removed from runtime and dev dependencies.
+- Matrix smoke tests use a minimal REST control client.
+- `npm audit` reports no UMG vulnerabilities.
 - Production Matrix state is `mautrix-crypto.db` instead of `matrix-crypto/` and `matrix-store.json`.
 
 ## Non-goals
@@ -31,8 +32,8 @@ No `matrix-bot-sdk` fork was needed. Keep the fork/patch idea only as historical
 
 ## Acceptance
 
-- `npm audit --omit=dev` has no `request`-chain findings.
-- `npm ls request request-promise request-promise-core --omit=dev` has no production paths.
+- `npm audit` has no UMG findings.
+- `npm ls matrix-bot-sdk request request-promise request-promise-core` has no paths.
 - `npm run typecheck`
 - `npm run lint`
 - `npm test`
