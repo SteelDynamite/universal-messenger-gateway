@@ -114,4 +114,4 @@ contact Matrix.
 
 ## Troubleshooting
 
-A single invite wait timeout near the reject-invite phase may be Matrix sync timing. Retry once. If it recurs, see [Matrix smoke invite wait flake](../techdebt/0004-matrix-smoke-invite-wait-flake.md).
+A single invite wait timeout near the reject-invite phase may be Matrix sync timing. Retry once. If it recurs, record another observation and investigate invite sync state.
