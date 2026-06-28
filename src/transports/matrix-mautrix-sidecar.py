@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ from mautrix.client import Client, InternalEventType, SyncStream
 from mautrix.client.encryption_manager import DecryptionDispatcher
 from mautrix.client.state_store import FileStateStore
 from mautrix.crypto import OlmMachine
+from mautrix.crypto.attachments import decrypt_attachment
 from mautrix.crypto.store import PgCryptoStateStore, PgCryptoStore
 from mautrix.errors.crypto import DecryptionError, SessionNotFound
 from mautrix.types import (
@@ -60,6 +62,7 @@ class JsonLineErrorHandler(logging.Handler):
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 logging.getLogger("mau.client.crypto").addHandler(JsonLineErrorHandler())
 DEBUG_ROOM_KEYS = os.environ.get("UMG_MATRIX_DEBUG_ROOM_KEYS") == "1"
+DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES = 5 * 1024 * 1024
 
 
 def debug_event(event: str, **fields: Any) -> None:
@@ -153,6 +156,7 @@ class Sidecar:
         self.room_member_count: dict[str, int] = {}
         self.connected_at = 0
         self.state_dir: Path | None = None
+        self.media_download_max_bytes = DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES
         self.recovery_key: str | None = None
         self.cross_sign_status: dict[str, Any] = {"enabled": False}
 
@@ -166,6 +170,8 @@ class Sidecar:
         command_recovery_key = command.get("recoveryKey")
         self.recovery_key = str(command_recovery_key).strip() if command_recovery_key else None
         encryption = bool(command.get("encryption", True))
+        media_download_max_bytes = command.get("mediaDownloadMaxBytes")
+        self.media_download_max_bytes = media_download_max_bytes if isinstance(media_download_max_bytes, int) and media_download_max_bytes >= 0 else DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES
 
         crypto_db = None
         crypto_store = None
@@ -269,6 +275,7 @@ class Sidecar:
         self.pending_invites.clear()
         self.room_member_count.clear()
         self.state_dir = None
+        self.media_download_max_bytes = DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES
         self.recovery_key = None
         self.cross_sign_status = {"enabled": False}
 
@@ -613,6 +620,8 @@ class Sidecar:
             return
         body = str(raw_content.get("body") or "")
         attachment = media_attachment(raw_content)
+        if attachment:
+            attachment["download"] = await self.download_media_attachment(raw_content, attachment, str(event.event_id or ""))
         if not body and not attachment:
             return
         member_count = self.room_member_count.get(room_id)
@@ -639,6 +648,48 @@ class Sidecar:
             }
         )
         await emit({"type": "message", "message": message})
+
+    async def download_media_attachment(
+        self,
+        content: dict[str, Any],
+        attachment: dict[str, Any],
+        event_id: str,
+    ) -> dict[str, Any]:
+        max_bytes = self.media_download_max_bytes
+        declared_size = attachment.get("sizeBytes")
+        if max_bytes <= 0:
+            return {"status": "skipped", "error": "media downloads disabled"}
+        if isinstance(declared_size, int) and declared_size > max_bytes:
+            return {"status": "skipped", "error": f"attachment exceeds {max_bytes} byte limit"}
+        try:
+            client = require_client(self.client)
+            ciphertext = await limited_matrix_download(client, str(attachment["mediaId"]), max_bytes)
+            file_info = content.get("file") if isinstance(content.get("file"), dict) else None
+            if file_info:
+                data = decrypt_attachment(
+                    ciphertext,
+                    file_info.get("key"),
+                    (file_info.get("hashes") or {}).get("sha256") if isinstance(file_info.get("hashes"), dict) else None,
+                    file_info.get("iv"),
+                )
+            else:
+                data = ciphertext
+            if len(data) > max_bytes:
+                return {"status": "skipped", "error": f"attachment exceeds {max_bytes} byte limit after decrypt"}
+            path = media_path(require_state_dir(self.state_dir), attachment, event_id)
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            path.write_bytes(data)
+            path.chmod(0o600)
+            return {
+                "status": "downloaded",
+                "localPath": str(path),
+                "sizeBytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+        except OversizedMediaError as error:
+            return {"status": "skipped", "error": str(error)}
+        except Exception as error:
+            return {"status": "failed", "error": str(error)}
 
     async def handle_reaction(self, event: ReactionEvent) -> None:
         room_id = str(event.room_id)
@@ -759,6 +810,44 @@ async def run() -> None:
 async def emit(value: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(value, separators=(",", ":")) + "\n")
     sys.stdout.flush()
+
+
+class OversizedMediaError(Exception):
+    pass
+
+
+async def limited_matrix_download(client: Client, media_id: str, max_bytes: int) -> bytes:
+    try:
+        url = client.api.get_download_url(media_id, authenticated=True)
+    except TypeError:
+        url = client.api.get_download_url(media_id)
+    data = bytearray()
+    headers = {"Authorization": f"Bearer {client.api.token}"}
+    async with client.api.session.get(url, headers=headers) as response:
+        response.raise_for_status()
+        async for chunk in response.content.iter_chunked(65536):
+            data.extend(chunk)
+            if len(data) > max_bytes:
+                raise OversizedMediaError(f"attachment exceeds {max_bytes} byte limit")
+    return bytes(data)
+
+
+def require_state_dir(state_dir: Path | None) -> Path:
+    if not state_dir:
+        raise RuntimeError("Matrix state directory is not configured")
+    return state_dir
+
+
+def media_path(state_dir: Path, attachment: dict[str, Any], event_id: str) -> Path:
+    digest = hashlib.sha256(f"{event_id}\0{attachment.get('mediaId', '')}".encode("utf8")).hexdigest()
+    file_name = safe_file_name(str(attachment.get("fileName") or attachment.get("description") or "attachment"))
+    return state_dir / "media" / f"{digest[:16]}-{file_name}"
+
+
+def safe_file_name(value: str) -> str:
+    name = Path(value).name.strip() or "attachment"
+    name = re.sub(r"[^A-Za-z0-9._ -]+", "_", name).strip(" .") or "attachment"
+    return name[:120]
 
 
 def read_recovery_key(state_dir: Path | None) -> str | None:

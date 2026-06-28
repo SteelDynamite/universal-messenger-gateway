@@ -43,7 +43,7 @@ Likely surfaces:
 - Matrix inbound media events emit attachment metadata.
 - Automated Matrix smoke tests cover the above.
 
-## Implemented media metadata
+## Implemented media handling
 
 Inbound Matrix `m.image`, `m.file`, `m.audio`, and `m.video` events produce an attachment envelope with:
 
@@ -51,5 +51,6 @@ Inbound Matrix `m.image`, `m.file`, `m.audio`, and `m.video` events produce an a
 - `kind`.
 - `fileName` / `description` from `body`.
 - `mimeType` and `sizeBytes` from `info` when present.
+- `download` status metadata.
 
-The gateway does not download media yet.
+The mautrix Matrix transport downloads attachments up to `mediaDownloadMaxBytes` (default 5 MiB) into `state/media/` and reports `localPath`, downloaded byte count, and SHA-256. Oversized or failed downloads still emit the message with skipped/failed download metadata.

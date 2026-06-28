@@ -26,6 +26,7 @@ export type MautrixMatrixConfig = {
   recoveryKey?: string;
   sidecarPath?: string;
   startupTimeoutMs?: number;
+  mediaDownloadMaxBytes?: number;
 };
 
 type PendingRequest = {
@@ -139,6 +140,9 @@ export class MautrixMatrixProvider implements TransportProvider {
           accessToken: this.#config.accessToken,
           stateDir: this.#stateDir,
           encryption: this.#config.encryption !== false,
+          ...(this.#config.mediaDownloadMaxBytes === undefined
+            ? {}
+            : { mediaDownloadMaxBytes: this.#config.mediaDownloadMaxBytes }),
           ...(this.#config.recoveryKey
             ? { recoveryKey: this.#config.recoveryKey }
             : {}),
@@ -414,6 +418,9 @@ export function parseMautrixMatrixConfig(
       : {}),
     ...(typeof settings.startupTimeoutMs === "number"
       ? { startupTimeoutMs: settings.startupTimeoutMs }
+      : {}),
+    ...(typeof settings.mediaDownloadMaxBytes === "number"
+      ? { mediaDownloadMaxBytes: settings.mediaDownloadMaxBytes }
       : {}),
   };
 }

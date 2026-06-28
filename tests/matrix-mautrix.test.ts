@@ -141,6 +141,7 @@ test("parses mautrix settings with token from state file", async () => {
           pythonPath: "/python",
           sidecarPath: "/sidecar.py",
           startupTimeoutMs: 1234,
+          mediaDownloadMaxBytes: 42,
         },
       },
       stateDir,
@@ -152,6 +153,7 @@ test("parses mautrix settings with token from state file", async () => {
     pythonPath: "/python",
     sidecarPath: "/sidecar.py",
     startupTimeoutMs: 1234,
+    mediaDownloadMaxBytes: 42,
   });
 });
 

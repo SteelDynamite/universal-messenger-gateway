@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { afterEach, expect, test } from "vitest";
@@ -439,7 +440,12 @@ runMatrixSmoke(
       "<code>code</code>",
     );
 
-    const attachmentMediaId = `mxc://example.org/umg-smoke-${runId}`;
+    const attachmentBody = `umg smoke attachment ${runId}`;
+    const attachmentMediaId = await controlClient.uploadMedia(
+      attachmentBody,
+      "text/plain",
+      "smoke.txt",
+    );
     const receivedAttachmentByB = waitForMessage(
       accountB,
       (message) =>
@@ -450,9 +456,10 @@ runMatrixSmoke(
       msgtype: "m.file",
       body: "smoke.txt",
       url: attachmentMediaId,
-      info: { mimetype: "text/plain", size: 42 },
+      info: { mimetype: "text/plain", size: attachmentBody.length },
     });
-    expect(await receivedAttachmentByB).toMatchObject({
+    const attachmentAtB = await receivedAttachmentByB;
+    expect(attachmentAtB).toMatchObject({
       transport: "matrix",
       chatId: formattedRoomId,
       content: "smoke.txt",
@@ -462,10 +469,23 @@ runMatrixSmoke(
           kind: "file",
           fileName: "smoke.txt",
           mimeType: "text/plain",
-          sizeBytes: 42,
+          sizeBytes: attachmentBody.length,
+          download: {
+            status: "downloaded",
+            sizeBytes: attachmentBody.length,
+          },
         },
       ],
     });
+    const downloadedAttachmentPath =
+      attachmentAtB.attachments?.[0]?.download?.localPath;
+    expect(downloadedAttachmentPath).toEqual(expect.any(String));
+    expect(attachmentAtB.attachments?.[0]?.download?.sha256).toEqual(
+      expect.any(String),
+    );
+    expect(await readFile(downloadedAttachmentPath ?? "", "utf8")).toBe(
+      attachmentBody,
+    );
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(
       accountB.messages.filter(

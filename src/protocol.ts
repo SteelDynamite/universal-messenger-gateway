@@ -21,6 +21,14 @@ export type MessageReference = {
 
 export type MediaAttachmentKind = "image" | "file" | "audio" | "video";
 
+export type MediaAttachmentDownload = {
+  status: "downloaded" | "skipped" | "failed";
+  localPath?: string;
+  sizeBytes?: number;
+  sha256?: string;
+  error?: string;
+};
+
 export type MediaAttachment = {
   mediaId: string;
   kind: MediaAttachmentKind;
@@ -28,6 +36,7 @@ export type MediaAttachment = {
   mimeType?: string;
   sizeBytes?: number;
   description?: string;
+  download?: MediaAttachmentDownload;
 };
 
 export type InboundMessage = {

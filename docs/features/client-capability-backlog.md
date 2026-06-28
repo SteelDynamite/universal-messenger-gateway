@@ -26,10 +26,9 @@ Longer-term chat-client capabilities that are useful but not required to prove P
 
 ## Media
 
-- Receive files and expose local paths or metadata in the gateway event stream.
 - Send files by path.
-- Receive images with useful metadata.
 - Send images by path.
+- Add richer previews/transforms beyond bounded downloaded media metadata.
 
 ## Message Features
 

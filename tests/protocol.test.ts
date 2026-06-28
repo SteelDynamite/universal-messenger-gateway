@@ -22,6 +22,12 @@ test("models inbound message events", () => {
           fileName: "photo.png",
           mimeType: "image/png",
           sizeBytes: 1234,
+          download: {
+            status: "downloaded",
+            localPath: "/state/media/photo.png",
+            sizeBytes: 1234,
+            sha256: "abc",
+          },
         },
       ],
       replyTo: {
@@ -39,6 +45,7 @@ test("models inbound message events", () => {
 
   expect(event.message.content).toBe("hello");
   expect(event.message.attachments?.[0]?.kind).toBe("image");
+  expect(event.message.attachments?.[0]?.download?.status).toBe("downloaded");
 });
 
 test("models inbound invite events", () => {

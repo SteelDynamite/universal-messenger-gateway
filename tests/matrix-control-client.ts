@@ -57,6 +57,28 @@ export class MatrixControlClient {
     return response.event_id;
   }
 
+  async uploadMedia(
+    data: string,
+    contentType: string,
+    filename: string,
+  ): Promise<string> {
+    const response = await fetch(
+      `${this.homeserverUrl}/_matrix/media/v3/upload?filename=${encodeURIComponent(filename)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          "Content-Type": contentType,
+        },
+        body: data,
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Matrix media upload failed: ${response.status}`);
+    }
+    return ((await response.json()) as { content_uri: string }).content_uri;
+  }
+
   async getEvent(
     roomId: string,
     eventId: string,
