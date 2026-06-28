@@ -587,17 +587,21 @@ class Sidecar:
         rooms = [str(room) for room in requested_rooms if isinstance(room, str)] if isinstance(requested_rooms, list) else sorted(self.joined_rooms)
         rooms = [room for room in rooms if room in self.joined_rooms]
         limit = bounded_int(command.get("limit"), 10, 1, 25)
-        max_messages_per_chat = bounded_int(command.get("maxMessagesPerChat"), 500, 1, 5000)
+        max_messages_per_chat = bounded_int(command.get("maxMessagesPerChat"), 100, 1, 1000)
+        max_scanned_messages = 2000
         terms = search_terms(query)
         token = await self.current_sync_token()
         matches: list[dict[str, Any]] = []
         errors: list[str] = []
         scanned_messages = 0
         for room_id in rooms:
+            if scanned_messages >= max_scanned_messages:
+                errors.append(f"search stopped after scanning {max_scanned_messages} messages")
+                break
             room_token = token
             scanned_room_messages = 0
-            while room_token and scanned_room_messages < max_messages_per_chat:
-                page_limit = min(100, max_messages_per_chat - scanned_room_messages)
+            while room_token and scanned_room_messages < max_messages_per_chat and scanned_messages < max_scanned_messages:
+                page_limit = min(50, max_messages_per_chat - scanned_room_messages, max_scanned_messages - scanned_messages)
                 try:
                     page = await client.get_messages(room_id, PaginationDirection.BACKWARD, room_token, limit=page_limit)
                 except Exception as error:
@@ -630,11 +634,14 @@ class Sidecar:
         }
 
     async def current_sync_token(self) -> str:
-        data = await require_client(self.client).sync(timeout=0)
-        token = data.get("next_batch") if isinstance(data, dict) else None
-        if not isinstance(token, str) or not token:
-            raise RuntimeError("Matrix sync did not return a pagination token")
-        return token
+        client = require_client(self.client)
+        # Do not call client.sync here; the background sync loop owns /sync.
+        for _ in range(20):
+            token = await client.sync_store.get_next_batch()
+            if isinstance(token, str) and token:
+                return token
+            await asyncio.sleep(0.1)
+        raise RuntimeError("Matrix sync has not produced a pagination token yet")
 
     async def history_message(self, room_id: str, event: Any) -> dict[str, Any] | None:
         event = await self.decrypt_history_event(event)
@@ -896,21 +903,32 @@ async def run() -> None:
         "accept_invite": sidecar.accept_invite,
         "reject_invite": sidecar.reject_invite,
     }
+    tasks: set[asyncio.Task[None]] = set()
     try:
         while True:
             line = await asyncio.to_thread(sys.stdin.readline)
             if not line:
                 break
             command = json.loads(line)
-            command_id = command.get("id")
-            try:
-                handler = handlers[str(command.get("type"))]
-                result = await handler(command)
-                await emit({"id": command_id, "ok": True, "result": result})
-            except Exception as error:
-                await emit({"id": command_id, "ok": False, "error": str(error)})
+            task = asyncio.create_task(handle_command(command, handlers))
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
     finally:
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         await sidecar.disconnect()
+
+
+async def handle_command(command: dict[str, Any], handlers: dict[str, Any]) -> None:
+    command_id = command.get("id")
+    try:
+        handler = handlers[str(command.get("type"))]
+        result = await handler(command)
+        await emit({"id": command_id, "ok": True, "result": result})
+    except Exception as error:
+        await emit({"id": command_id, "ok": False, "error": str(error)})
 
 
 async def emit(value: dict[str, Any]) -> None:
