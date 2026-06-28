@@ -299,6 +299,25 @@ runMatrixMautrixSmoke(
         },
       ],
     });
+    expect(
+      await accountB.provider.searchHistory({
+        transport: "matrix",
+        chatIds: [encryptedRoomId],
+        messageId: requiredMessageId(encryptedAtB),
+        limit: 1,
+      }),
+    ).toMatchObject({ messages: [{ content: encryptedMessage }] });
+    expect(
+      await accountB.provider.searchHistory({
+        transport: "matrix",
+        query: encryptedMessage,
+        chatIds: [encryptedRoomId],
+        fromTimestamp: encryptedAtB.timestamp - 60_000,
+        toTimestamp: encryptedAtB.timestamp + 60_000,
+        limit: 1,
+        maxMessagesPerChat: 100,
+      }),
+    ).toMatchObject({ messages: [{ content: encryptedMessage }] });
 
     const replyMessage = `umg mautrix reply ${runId}`;
     const receivedReplyByA = waitForMessage(

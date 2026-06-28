@@ -73,6 +73,7 @@ test("default Matrix factory can select the mautrix sidecar implementation", asy
       transport: "matrix",
       query: "history",
       chatIds: ["!room"],
+      messageId: "$history",
     }),
   ).toMatchObject({
     messages: [
@@ -130,6 +131,12 @@ test("default Matrix factory can select the mautrix sidecar implementation", asy
       accessToken: "token",
       stateDir,
       encryption: true,
+    }),
+  );
+  expect(log).toContainEqual(
+    expect.objectContaining({
+      type: "search_history",
+      messageId: "$history",
     }),
   );
   expect(log).toContainEqual(

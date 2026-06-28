@@ -23,6 +23,7 @@ export type ChatHistoryQuery = {
   transport: TransportName;
   query?: string;
   chatIds?: string[];
+  messageId?: string;
   fromTimestamp?: number;
   toTimestamp?: number;
   limit?: number;

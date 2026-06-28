@@ -217,6 +217,9 @@ export class MautrixMatrixProvider implements TransportProvider {
         {
           query: query.query ?? "",
           ...(query.chatIds ? { chatIds: query.chatIds } : {}),
+          ...(query.messageId === undefined
+            ? {}
+            : { messageId: query.messageId }),
           ...(query.fromTimestamp === undefined
             ? {}
             : { fromTimestamp: query.fromTimestamp }),

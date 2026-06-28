@@ -75,10 +75,12 @@ test("models chat history search results", () => {
   const query = {
     transport: "matrix",
     query: "deployment",
+    messageId: "$event",
     fromTimestamp: 1_716_000_000_000,
     toTimestamp: 1_716_086_400_000,
   } satisfies ChatHistoryQuery;
 
+  expect(query.messageId).toBe("$event");
   expect(query.fromTimestamp).toBeLessThan(query.toTimestamp);
   expect(result.messages[0]?.permalink).toContain("matrix.to");
 });

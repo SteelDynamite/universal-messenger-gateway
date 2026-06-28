@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from mautrix.api import Method, Path as MatrixPath
 from mautrix.client import Client, InternalEventType, SyncStream
 from mautrix.client.encryption_manager import DecryptionDispatcher
 from mautrix.client.state_store import FileStateStore
@@ -580,9 +581,10 @@ class Sidecar:
     async def search_history(self, command: dict[str, Any]) -> dict[str, Any]:
         client = require_client(self.client)
         query = str(command.get("query") or "").strip()
+        message_id = str(command.get("messageId") or "").strip()
         from_timestamp = optional_int(command.get("fromTimestamp"))
         to_timestamp = optional_int(command.get("toTimestamp"))
-        if not query and from_timestamp is None and to_timestamp is None:
+        if not query and not message_id and from_timestamp is None and to_timestamp is None:
             return {"messages": [], "scannedChats": 0, "scannedMessages": 0}
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
         requested_rooms = command.get("chatIds")
@@ -593,31 +595,44 @@ class Sidecar:
         max_scanned_messages = 2000
         deadline = time.monotonic() + bounded_int(command.get("deadlineMs"), 45_000, 1000, 55_000) / 1000
         terms = search_terms(query)
-        token = await self.current_sync_token()
         matches: list[dict[str, Any]] = []
         errors: list[str] = []
         scanned_messages = 0
         skipped_decryptions = 0
         timed_out = False
-        for room_id in rooms:
-            if time.monotonic() >= deadline:
-                timed_out = True
-                errors.append("search returned partial results at deadline")
-                break
-            if scanned_messages >= max_scanned_messages:
-                errors.append(f"search stopped after scanning {max_scanned_messages} messages")
-                break
-            room_token = token
+
+        async def collect_event(room_id: str, event: Any) -> str:
+            nonlocal scanned_messages, skipped_decryptions
+            event_timestamp = history_event_timestamp(event)
+            if to_timestamp is not None and event_timestamp > to_timestamp:
+                return "too_new"
+            if from_timestamp is not None and event_timestamp < from_timestamp:
+                return "too_old"
+            scanned_messages += 1
+            message, skipped_decryption = await self.history_message(room_id, event)
+            if skipped_decryption and is_recent_history_event(event):
+                skipped_decryptions += 1
+            if not message:
+                return "skipped"
+            score = 1 if not query else search_score(message["content"], query, terms)
+            if score <= 0:
+                return "skipped"
+            message["score"] = score
+            matches.append(message)
+            return "matched"
+
+        async def scan_paginated(room_id: str, direction: PaginationDirection, token: str | None) -> None:
+            nonlocal timed_out
             scanned_room_messages = 0
-            room_done = False
-            while room_token and scanned_room_messages < max_messages_per_chat and scanned_messages < max_scanned_messages and not room_done:
+            room_token = token
+            while room_token and scanned_room_messages < max_messages_per_chat and scanned_messages < max_scanned_messages:
                 if time.monotonic() >= deadline:
                     timed_out = True
                     errors.append("search returned partial results at deadline")
                     break
                 page_limit = min(50, max_messages_per_chat - scanned_room_messages, max_scanned_messages - scanned_messages)
                 try:
-                    page = await client.get_messages(room_id, PaginationDirection.BACKWARD, room_token, limit=page_limit)
+                    page = await client.get_messages(room_id, direction, room_token, limit=page_limit)
                 except Exception as error:
                     errors.append(f"{room_id}: {error}")
                     break
@@ -629,30 +644,73 @@ class Sidecar:
                         timed_out = True
                         errors.append("search returned partial results at deadline")
                         break
-                    event_timestamp = history_event_timestamp(event)
-                    if to_timestamp is not None and event_timestamp > to_timestamp:
-                        continue
-                    if from_timestamp is not None and event_timestamp < from_timestamp:
-                        room_done = True
-                        break
-                    scanned_room_messages += 1
-                    scanned_messages += 1
-                    message, skipped_decryption = await self.history_message(room_id, event)
-                    if skipped_decryption and is_recent_history_event(event):
-                        skipped_decryptions += 1
-                    if not message:
-                        continue
-                    score = 1 if not query else search_score(message["content"], query, terms)
-                    if score <= 0:
-                        continue
-                    message["score"] = score
-                    matches.append(message)
+                    status = await collect_event(room_id, event)
+                    if status in {"matched", "skipped"}:
+                        scanned_room_messages += 1
+                    if direction == PaginationDirection.BACKWARD and status == "too_old":
+                        return
+                    if direction == PaginationDirection.FORWARD and status == "too_new":
+                        return
                 if timed_out:
                     break
                 next_token = paginated_end(page)
                 if not next_token or next_token == room_token:
                     break
                 room_token = next_token
+
+        async def scan_date_range(room_id: str) -> bool:
+            direction = "f" if from_timestamp is not None else "b"
+            timestamp = from_timestamp if from_timestamp is not None else to_timestamp
+            if timestamp is None:
+                return False
+            event_id = await self.timestamp_to_event_id(room_id, timestamp, direction)
+            if not event_id:
+                return False
+            try:
+                context = await client.get_event_context(room_id, event_id, limit=min(100, max_messages_per_chat))
+            except Exception as error:
+                errors.append(f"{room_id}: {error}")
+                return False
+            context_events = [
+                *list(getattr(context, "events_before", []) or []),
+                getattr(context, "event", None),
+                *list(getattr(context, "events_after", []) or []),
+            ]
+            context_events = [event for event in context_events if event is not None]
+            context_events.sort(key=history_event_timestamp, reverse=from_timestamp is None)
+            for event in context_events:
+                status = await collect_event(room_id, event)
+                if from_timestamp is not None and status == "too_new":
+                    return
+                if from_timestamp is None and status == "too_old":
+                    return
+            await scan_paginated(
+                room_id,
+                PaginationDirection.FORWARD if from_timestamp is not None else PaginationDirection.BACKWARD,
+                str(getattr(context, "end" if from_timestamp is not None else "start", "") or "") or None,
+            )
+            return True
+
+        token: str | None = None
+        for room_id in rooms:
+            if time.monotonic() >= deadline:
+                timed_out = True
+                errors.append("search returned partial results at deadline")
+                break
+            if scanned_messages >= max_scanned_messages:
+                errors.append(f"search stopped after scanning {max_scanned_messages} messages")
+                break
+            if message_id:
+                try:
+                    await collect_event(room_id, await client.get_event(room_id, message_id))
+                except Exception as error:
+                    errors.append(f"{room_id}: {error}")
+                continue
+            if from_timestamp is not None or to_timestamp is not None:
+                if await scan_date_range(room_id):
+                    continue
+            token = token or await self.current_sync_token()
+            await scan_paginated(room_id, PaginationDirection.BACKWARD, token)
         matches.sort(key=lambda item: (int(item.get("score") or 0), int(item.get("timestamp") or 0)), reverse=True)
         return {
             "messages": [without_score(message) for message in matches[:limit]],
@@ -662,6 +720,19 @@ class Sidecar:
             "partial": timed_out or scanned_messages >= max_scanned_messages,
             **({"errors": list(dict.fromkeys(errors))[:10]} if errors else {}),
         }
+
+    async def timestamp_to_event_id(self, room_id: str, timestamp: int, direction: str) -> str | None:
+        try:
+            response = await require_client(self.client).api.request(
+                Method.GET,
+                MatrixPath.v1.rooms[room_id].timestamp_to_event,
+                query_params={"ts": str(timestamp), "dir": direction},
+                metrics_method="timestamp_to_event",
+            )
+        except Exception:
+            return None
+        event_id = response.get("event_id") if isinstance(response, dict) else None
+        return event_id if isinstance(event_id, str) and event_id else None
 
     async def current_sync_token(self) -> str:
         client = require_client(self.client)
