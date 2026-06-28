@@ -666,9 +666,10 @@ class Sidecar:
             ciphertext = await limited_matrix_download(client, str(attachment["mediaId"]), max_bytes)
             file_info = content.get("file") if isinstance(content.get("file"), dict) else None
             if file_info:
+                key_info = file_info.get("key")
                 data = decrypt_attachment(
                     ciphertext,
-                    file_info.get("key"),
+                    key_info.get("k") if isinstance(key_info, dict) else key_info,
                     (file_info.get("hashes") or {}).get("sha256") if isinstance(file_info.get("hashes"), dict) else None,
                     file_info.get("iv"),
                 )
