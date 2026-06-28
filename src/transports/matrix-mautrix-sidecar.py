@@ -629,7 +629,7 @@ class Sidecar:
                     scanned_room_messages += 1
                     scanned_messages += 1
                     message, skipped_decryption = await self.history_message(room_id, event)
-                    if skipped_decryption:
+                    if skipped_decryption and is_recent_history_event(event):
                         skipped_decryptions += 1
                     if not message:
                         continue
@@ -1168,6 +1168,11 @@ def bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
 
 def matrix_permalink(room_id: str, event_id: str) -> str:
     return f"https://matrix.to/#/{quote(room_id, safe='')}/{quote(event_id, safe='')}"
+
+
+def is_recent_history_event(event: Any) -> bool:
+    timestamp = getattr(event, "timestamp", None)
+    return isinstance(timestamp, int) and timestamp >= now_ms() - 24 * 60 * 60 * 1000
 
 
 def media_attachment(content: dict[str, Any]) -> dict[str, Any] | None:
