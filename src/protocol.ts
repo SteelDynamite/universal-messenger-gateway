@@ -21,8 +21,10 @@ export type MessageReference = {
 
 export type ChatHistoryQuery = {
   transport: TransportName;
-  query: string;
+  query?: string;
   chatIds?: string[];
+  fromTimestamp?: number;
+  toTimestamp?: number;
   limit?: number;
   maxMessagesPerChat?: number;
 };

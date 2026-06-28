@@ -580,7 +580,9 @@ class Sidecar:
     async def search_history(self, command: dict[str, Any]) -> dict[str, Any]:
         client = require_client(self.client)
         query = str(command.get("query") or "").strip()
-        if not query:
+        from_timestamp = optional_int(command.get("fromTimestamp"))
+        to_timestamp = optional_int(command.get("toTimestamp"))
+        if not query and from_timestamp is None and to_timestamp is None:
             return {"messages": [], "scannedChats": 0, "scannedMessages": 0}
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
         requested_rooms = command.get("chatIds")
@@ -607,7 +609,8 @@ class Sidecar:
                 break
             room_token = token
             scanned_room_messages = 0
-            while room_token and scanned_room_messages < max_messages_per_chat and scanned_messages < max_scanned_messages:
+            room_done = False
+            while room_token and scanned_room_messages < max_messages_per_chat and scanned_messages < max_scanned_messages and not room_done:
                 if time.monotonic() >= deadline:
                     timed_out = True
                     errors.append("search returned partial results at deadline")
@@ -626,6 +629,12 @@ class Sidecar:
                         timed_out = True
                         errors.append("search returned partial results at deadline")
                         break
+                    event_timestamp = history_event_timestamp(event)
+                    if to_timestamp is not None and event_timestamp > to_timestamp:
+                        continue
+                    if from_timestamp is not None and event_timestamp < from_timestamp:
+                        room_done = True
+                        break
                     scanned_room_messages += 1
                     scanned_messages += 1
                     message, skipped_decryption = await self.history_message(room_id, event)
@@ -633,7 +642,7 @@ class Sidecar:
                         skipped_decryptions += 1
                     if not message:
                         continue
-                    score = search_score(message["content"], query, terms)
+                    score = 1 if not query else search_score(message["content"], query, terms)
                     if score <= 0:
                         continue
                     message["score"] = score
@@ -1140,6 +1149,15 @@ def paginated_end(page: Any) -> str | None:
     if isinstance(page, (list, tuple)) and len(page) >= 2 and isinstance(page[1], str):
         return page[1]
     return None
+
+
+def optional_int(value: Any) -> int | None:
+    return value if isinstance(value, int) else None
+
+
+def history_event_timestamp(event: Any) -> int:
+    timestamp = getattr(event, "timestamp", None)
+    return timestamp if isinstance(timestamp, int) else now_ms()
 
 
 def search_terms(query: str) -> list[str]:

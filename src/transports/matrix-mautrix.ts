@@ -215,8 +215,14 @@ export class MautrixMatrixProvider implements TransportProvider {
       await this.request(
         "search_history",
         {
-          query: query.query,
+          query: query.query ?? "",
           ...(query.chatIds ? { chatIds: query.chatIds } : {}),
+          ...(query.fromTimestamp === undefined
+            ? {}
+            : { fromTimestamp: query.fromTimestamp }),
+          ...(query.toTimestamp === undefined
+            ? {}
+            : { toTimestamp: query.toTimestamp }),
           ...(query.limit === undefined ? {} : { limit: query.limit }),
           ...(query.maxMessagesPerChat === undefined
             ? {}

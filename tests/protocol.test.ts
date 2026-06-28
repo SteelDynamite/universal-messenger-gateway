@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import type {
+  ChatHistoryQuery,
   ChatHistorySearchResult,
   GatewayCommand,
   GatewayEvent,
@@ -71,7 +72,14 @@ test("models chat history search results", () => {
     partial: true,
     errors: ["search returned partial results at deadline"],
   } satisfies ChatHistorySearchResult;
+  const query = {
+    transport: "matrix",
+    query: "deployment",
+    fromTimestamp: 1_716_000_000_000,
+    toTimestamp: 1_716_086_400_000,
+  } satisfies ChatHistoryQuery;
 
+  expect(query.fromTimestamp).toBeLessThan(query.toTimestamp);
   expect(result.messages[0]?.permalink).toContain("matrix.to");
 });
 
