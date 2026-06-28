@@ -44,6 +44,8 @@ export type ChatHistorySearchResult = {
   messages: ChatHistoryMessage[];
   scannedChats: number;
   scannedMessages: number;
+  skippedDecryption?: number;
+  partial?: boolean;
   errors?: string[];
 };
 

@@ -589,18 +589,29 @@ class Sidecar:
         limit = bounded_int(command.get("limit"), 10, 1, 25)
         max_messages_per_chat = bounded_int(command.get("maxMessagesPerChat"), 100, 1, 1000)
         max_scanned_messages = 2000
+        deadline = time.monotonic() + bounded_int(command.get("deadlineMs"), 45_000, 1000, 55_000) / 1000
         terms = search_terms(query)
         token = await self.current_sync_token()
         matches: list[dict[str, Any]] = []
         errors: list[str] = []
         scanned_messages = 0
+        skipped_decryptions = 0
+        timed_out = False
         for room_id in rooms:
+            if time.monotonic() >= deadline:
+                timed_out = True
+                errors.append("search returned partial results at deadline")
+                break
             if scanned_messages >= max_scanned_messages:
                 errors.append(f"search stopped after scanning {max_scanned_messages} messages")
                 break
             room_token = token
             scanned_room_messages = 0
             while room_token and scanned_room_messages < max_messages_per_chat and scanned_messages < max_scanned_messages:
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    errors.append("search returned partial results at deadline")
+                    break
                 page_limit = min(50, max_messages_per_chat - scanned_room_messages, max_scanned_messages - scanned_messages)
                 try:
                     page = await client.get_messages(room_id, PaginationDirection.BACKWARD, room_token, limit=page_limit)
@@ -611,9 +622,15 @@ class Sidecar:
                 if not events:
                     break
                 for event in events:
+                    if time.monotonic() >= deadline:
+                        timed_out = True
+                        errors.append("search returned partial results at deadline")
+                        break
                     scanned_room_messages += 1
                     scanned_messages += 1
-                    message = await self.history_message(room_id, event)
+                    message, skipped_decryption = await self.history_message(room_id, event)
+                    if skipped_decryption:
+                        skipped_decryptions += 1
                     if not message:
                         continue
                     score = search_score(message["content"], query, terms)
@@ -621,6 +638,8 @@ class Sidecar:
                         continue
                     message["score"] = score
                     matches.append(message)
+                if timed_out:
+                    break
                 next_token = paginated_end(page)
                 if not next_token or next_token == room_token:
                     break
@@ -630,7 +649,9 @@ class Sidecar:
             "messages": [without_score(message) for message in matches[:limit]],
             "scannedChats": len(rooms),
             "scannedMessages": scanned_messages,
-            **({"errors": errors[:10]} if errors else {}),
+            "skippedDecryption": skipped_decryptions,
+            "partial": timed_out or scanned_messages >= max_scanned_messages,
+            **({"errors": list(dict.fromkeys(errors))[:10]} if errors else {}),
         }
 
     async def current_sync_token(self) -> str:
@@ -643,17 +664,19 @@ class Sidecar:
             await asyncio.sleep(0.1)
         raise RuntimeError("Matrix sync has not produced a pagination token yet")
 
-    async def history_message(self, room_id: str, event: Any) -> dict[str, Any] | None:
-        event = await self.decrypt_history_event(event)
+    async def history_message(self, room_id: str, event: Any) -> tuple[dict[str, Any] | None, bool]:
+        event, skipped_decryption = await self.decrypt_history_event(event)
+        if not event:
+            return None, skipped_decryption
         raw_content = serialize(getattr(event, "content", None))
         if raw_content.get("m.new_content"):
-            return None
+            return None, skipped_decryption
         body = raw_content.get("body")
         if not isinstance(body, str) or not body.strip():
-            return None
+            return None, skipped_decryption
         event_id = str(getattr(event, "event_id", "") or "")
         if not event_id:
-            return None
+            return None, skipped_decryption
         return compact(
             {
                 "transport": "matrix",
@@ -666,25 +689,20 @@ class Sidecar:
                 "permalink": matrix_permalink(room_id, event_id),
                 **message_references(room_id, raw_content),
             }
-        )
+        ), skipped_decryption
 
-    async def decrypt_history_event(self, event: Any) -> Any:
+    async def decrypt_history_event(self, event: Any) -> tuple[Any | None, bool]:
         if getattr(event, "type", None) != EventType.ROOM_ENCRYPTED:
-            return event
+            return event, False
         crypto = self.crypto
         if not crypto:
-            return event
+            return None, True
         try:
-            return await crypto.decrypt_megolm_event(event)
-        except SessionNotFound:
-            try:
-                if await self.request_missing_room_key(event, timeout=3):
-                    return await crypto.decrypt_megolm_event(event)
-            except Exception:
-                return event
-        except DecryptionError:
-            return event
-        return event
+            return await crypto.decrypt_megolm_event(event), False
+        except (SessionNotFound, DecryptionError):
+            return None, True
+        except Exception:
+            return None, True
 
     async def send_message(self, command: dict[str, Any]) -> None:
         client = require_client(self.client)

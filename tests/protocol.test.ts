@@ -67,6 +67,9 @@ test("models chat history search results", () => {
     ],
     scannedChats: 1,
     scannedMessages: 42,
+    skippedDecryption: 3,
+    partial: true,
+    errors: ["search returned partial results at deadline"],
   } satisfies ChatHistorySearchResult;
 
   expect(result.messages[0]?.permalink).toContain("matrix.to");

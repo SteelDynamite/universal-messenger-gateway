@@ -529,6 +529,10 @@ function asChatHistorySearchResult(value: unknown): ChatHistorySearchResult {
       typeof value.scannedChats === "number" ? value.scannedChats : 0,
     scannedMessages:
       typeof value.scannedMessages === "number" ? value.scannedMessages : 0,
+    ...(typeof value.skippedDecryption === "number"
+      ? { skippedDecryption: value.skippedDecryption }
+      : {}),
+    ...(typeof value.partial === "boolean" ? { partial: value.partial } : {}),
     ...(Array.isArray(value.errors) &&
     value.errors.every((error) => typeof error === "string")
       ? { errors: value.errors }
