@@ -161,6 +161,24 @@ runMatrixMautrixSmoke(
       isGroupChat: false,
       wasMentioned: false,
     });
+    expect(
+      await accountB.provider.searchHistory({
+        transport: "matrix",
+        query: plainMessage,
+        chatIds: [plainRoomId],
+        limit: 1,
+        maxMessagesPerChat: 100,
+      }),
+    ).toMatchObject({
+      messages: [
+        {
+          transport: "matrix",
+          chatId: plainRoomId,
+          content: plainMessage,
+          permalink: expect.stringContaining("https://matrix.to/#/"),
+        },
+      ],
+    });
 
     const formattedMessage = `umg mautrix **bold** \`code\` ${runId}`;
     const receivedFormattedByB = waitForMessage(
@@ -263,6 +281,24 @@ runMatrixMautrixSmoke(
         requiredMessageId(encryptedAtB),
       ),
     ).toBe("m.room.encrypted");
+    expect(
+      await accountB.provider.searchHistory({
+        transport: "matrix",
+        query: encryptedMessage,
+        chatIds: [encryptedRoomId],
+        limit: 1,
+        maxMessagesPerChat: 100,
+      }),
+    ).toMatchObject({
+      messages: [
+        {
+          transport: "matrix",
+          chatId: encryptedRoomId,
+          content: encryptedMessage,
+          permalink: expect.stringContaining("https://matrix.to/#/"),
+        },
+      ],
+    });
 
     const replyMessage = `umg mautrix reply ${runId}`;
     const receivedReplyByA = waitForMessage(

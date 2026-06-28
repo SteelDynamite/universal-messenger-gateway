@@ -19,6 +19,34 @@ export type MessageReference = {
   messageId: string;
 };
 
+export type ChatHistoryQuery = {
+  transport: TransportName;
+  query: string;
+  chatIds?: string[];
+  limit?: number;
+  maxMessagesPerChat?: number;
+};
+
+export type ChatHistoryMessage = {
+  transport: TransportName;
+  chatId: string;
+  messageId: string;
+  content: string;
+  timestamp: number;
+  username?: string;
+  userId?: string;
+  permalink?: string;
+  replyTo?: MessageReference;
+  threadTo?: MessageReference;
+};
+
+export type ChatHistorySearchResult = {
+  messages: ChatHistoryMessage[];
+  scannedChats: number;
+  scannedMessages: number;
+  errors?: string[];
+};
+
 export type MediaAttachmentKind = "image" | "file" | "audio" | "video";
 
 export type MediaAttachmentDownload = {

@@ -25,6 +25,9 @@ export {
 } from "./config.js";
 export type {
   AcceptInviteCommand,
+  ChatHistoryMessage,
+  ChatHistoryQuery,
+  ChatHistorySearchResult,
   GatewayCommand,
   GatewayEvent,
   InboundInvite,

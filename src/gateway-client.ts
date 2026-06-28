@@ -2,6 +2,8 @@ import { Writable } from "node:stream";
 import { runAdminCli } from "./admin.js";
 import { loadGatewayConfig } from "./config.js";
 import type {
+  ChatHistoryQuery,
+  ChatHistorySearchResult,
   GatewayCommand,
   GatewayEvent,
   TransportName,
@@ -33,6 +35,7 @@ export interface GatewayClient {
   listChats(transport: TransportName): Promise<TransportChat[]>;
   listInvites(transport: TransportName): Promise<TransportInvite[]>;
   health(transport: TransportName): Promise<TransportHealth[]>;
+  searchHistory(query: ChatHistoryQuery): Promise<ChatHistorySearchResult>;
   leaveChat(
     transport: TransportName,
     chatId: string,
@@ -109,6 +112,16 @@ export class ManagerGatewayClient implements GatewayClient {
   async health(transportName: TransportName): Promise<TransportHealth[]> {
     const transport = this.options.manager.getTransport(transportName);
     return transport.health?.() ?? [];
+  }
+
+  async searchHistory(
+    query: ChatHistoryQuery,
+  ): Promise<ChatHistorySearchResult> {
+    const transport = this.options.manager.getTransport(query.transport);
+    if (!transport.searchHistory) {
+      throw new Error(`History search is not supported by ${query.transport}`);
+    }
+    return transport.searchHistory(query);
   }
 
   async leaveChat(

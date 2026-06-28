@@ -13,6 +13,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from mautrix.client import Client, InternalEventType, SyncStream
 from mautrix.client.encryption_manager import DecryptionDispatcher
@@ -29,6 +30,7 @@ from mautrix.types import (
     Membership,
     MessageEvent,
     MessageType,
+    PaginationDirection,
     ReactionEvent,
     RelationType,
     RelatesTo,
@@ -575,6 +577,108 @@ class Sidecar:
             }
         ]
 
+    async def search_history(self, command: dict[str, Any]) -> dict[str, Any]:
+        client = require_client(self.client)
+        query = str(command.get("query") or "").strip()
+        if not query:
+            return {"messages": [], "scannedChats": 0, "scannedMessages": 0}
+        self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
+        requested_rooms = command.get("chatIds")
+        rooms = [str(room) for room in requested_rooms if isinstance(room, str)] if isinstance(requested_rooms, list) else sorted(self.joined_rooms)
+        rooms = [room for room in rooms if room in self.joined_rooms]
+        limit = bounded_int(command.get("limit"), 10, 1, 25)
+        max_messages_per_chat = bounded_int(command.get("maxMessagesPerChat"), 500, 1, 5000)
+        terms = search_terms(query)
+        token = await self.current_sync_token()
+        matches: list[dict[str, Any]] = []
+        errors: list[str] = []
+        scanned_messages = 0
+        for room_id in rooms:
+            room_token = token
+            scanned_room_messages = 0
+            while room_token and scanned_room_messages < max_messages_per_chat:
+                page_limit = min(100, max_messages_per_chat - scanned_room_messages)
+                try:
+                    page = await client.get_messages(room_id, PaginationDirection.BACKWARD, room_token, limit=page_limit)
+                except Exception as error:
+                    errors.append(f"{room_id}: {error}")
+                    break
+                events = paginated_events(page)
+                if not events:
+                    break
+                for event in events:
+                    scanned_room_messages += 1
+                    scanned_messages += 1
+                    message = await self.history_message(room_id, event)
+                    if not message:
+                        continue
+                    score = search_score(message["content"], query, terms)
+                    if score <= 0:
+                        continue
+                    message["score"] = score
+                    matches.append(message)
+                next_token = paginated_end(page)
+                if not next_token or next_token == room_token:
+                    break
+                room_token = next_token
+        matches.sort(key=lambda item: (int(item.get("score") or 0), int(item.get("timestamp") or 0)), reverse=True)
+        return {
+            "messages": [without_score(message) for message in matches[:limit]],
+            "scannedChats": len(rooms),
+            "scannedMessages": scanned_messages,
+            **({"errors": errors[:10]} if errors else {}),
+        }
+
+    async def current_sync_token(self) -> str:
+        data = await require_client(self.client).sync(timeout=0)
+        token = data.get("next_batch") if isinstance(data, dict) else None
+        if not isinstance(token, str) or not token:
+            raise RuntimeError("Matrix sync did not return a pagination token")
+        return token
+
+    async def history_message(self, room_id: str, event: Any) -> dict[str, Any] | None:
+        event = await self.decrypt_history_event(event)
+        raw_content = serialize(getattr(event, "content", None))
+        if raw_content.get("m.new_content"):
+            return None
+        body = raw_content.get("body")
+        if not isinstance(body, str) or not body.strip():
+            return None
+        event_id = str(getattr(event, "event_id", "") or "")
+        if not event_id:
+            return None
+        return compact(
+            {
+                "transport": "matrix",
+                "chatId": room_id,
+                "messageId": event_id,
+                "content": body.strip(),
+                "username": extract_username(str(getattr(event, "sender", ""))),
+                "userId": str(getattr(event, "sender", "")) or None,
+                "timestamp": int(getattr(event, "timestamp", None) or now_ms()),
+                "permalink": matrix_permalink(room_id, event_id),
+                **message_references(room_id, raw_content),
+            }
+        )
+
+    async def decrypt_history_event(self, event: Any) -> Any:
+        if getattr(event, "type", None) != EventType.ROOM_ENCRYPTED:
+            return event
+        crypto = self.crypto
+        if not crypto:
+            return event
+        try:
+            return await crypto.decrypt_megolm_event(event)
+        except SessionNotFound:
+            try:
+                if await self.request_missing_room_key(event, timeout=3):
+                    return await crypto.decrypt_megolm_event(event)
+            except Exception:
+                return event
+        except DecryptionError:
+            return event
+        return event
+
     async def send_message(self, command: dict[str, Any]) -> None:
         client = require_client(self.client)
         room_id = str(command["chatId"])
@@ -784,6 +888,7 @@ async def run() -> None:
         "list_chats": lambda command: sidecar.list_chats(),
         "list_invites": lambda command: sidecar.list_invites(),
         "health": lambda command: sidecar.health(),
+        "search_history": sidecar.search_history,
         "send_message": sidecar.send_message,
         "send_reaction": sidecar.send_reaction,
         "send_typing": sidecar.send_typing,
@@ -978,6 +1083,55 @@ def message_references(room_id: str, content: dict[str, Any]) -> dict[str, Any]:
     if isinstance(thread_root, str):
         result["threadTo"] = {"transport": "matrix", "chatId": room_id, "messageId": thread_root}
     return result
+
+
+def paginated_events(page: Any) -> list[Any]:
+    events = getattr(page, "events", None)
+    if isinstance(events, list):
+        return events
+    chunk = getattr(page, "chunk", None)
+    if isinstance(chunk, list):
+        return chunk
+    if isinstance(page, (list, tuple)) and len(page) >= 3 and isinstance(page[2], list):
+        return page[2]
+    return []
+
+
+def paginated_end(page: Any) -> str | None:
+    value = getattr(page, "end", None)
+    if isinstance(value, str):
+        return value
+    if isinstance(page, (list, tuple)) and len(page) >= 2 and isinstance(page[1], str):
+        return page[1]
+    return None
+
+
+def search_terms(query: str) -> list[str]:
+    return [term for term in re.findall(r"[\w@:.#$!/-]+", query.lower()) if len(term) > 1]
+
+
+def search_score(text: str, query: str, terms: list[str]) -> int:
+    haystack = text.lower()
+    phrase = query.lower().strip()
+    score = 10 if phrase and phrase in haystack else 0
+    for term in terms:
+        if term in haystack:
+            score += 1 + haystack.count(term)
+    return score
+
+
+def without_score(message: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in message.items() if key != "score"}
+
+
+def bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    if not isinstance(value, int):
+        return default
+    return max(minimum, min(maximum, value))
+
+
+def matrix_permalink(room_id: str, event_id: str) -> str:
+    return f"https://matrix.to/#/{quote(room_id, safe='')}/{quote(event_id, safe='')}"
 
 
 def media_attachment(content: dict[str, Any]) -> dict[str, Any] | None:

@@ -14,7 +14,7 @@ prevents stale crypto stores from one account being reused with another account'
 
 ## Command
 
-Use the gitignored local env file when it exists:
+Use the gitignored local env file when it exists. In the Forge workspace, it exists at `repos/universal-messenger-gateway/state/matrix-smoke.env`.
 
 ```sh
 set -a && source state/matrix-smoke.env && set +a && UMG_MATRIX_SMOKE=1 npm run test:matrix-smoke

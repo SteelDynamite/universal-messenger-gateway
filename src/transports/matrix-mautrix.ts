@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import type { TransportConfig } from "../config.js";
 import { readJsonLines, writeJsonLine } from "../io/json-lines.js";
 import type {
+  ChatHistoryQuery,
+  ChatHistorySearchResult,
   InboundMessage,
   InboundReaction,
   MessageReference,
@@ -204,6 +206,25 @@ export class MautrixMatrixProvider implements TransportProvider {
   async health(): Promise<TransportHealth[]> {
     const result = await this.request("health", {});
     return asArray(result).filter(isTransportHealth);
+  }
+
+  async searchHistory(
+    query: ChatHistoryQuery,
+  ): Promise<ChatHistorySearchResult> {
+    return asChatHistorySearchResult(
+      await this.request(
+        "search_history",
+        {
+          query: query.query,
+          ...(query.chatIds ? { chatIds: query.chatIds } : {}),
+          ...(query.limit === undefined ? {} : { limit: query.limit }),
+          ...(query.maxMessagesPerChat === undefined
+            ? {}
+            : { maxMessagesPerChat: query.maxMessagesPerChat }),
+        },
+        60_000,
+      ),
+    );
   }
 
   async sendMessage(
@@ -496,6 +517,36 @@ function isTransportChat(value: unknown): value is TransportChat {
 
 function isTransportInvite(value: unknown): value is TransportInvite {
   return isRecord(value) && typeof value.inviteId === "string";
+}
+
+function asChatHistorySearchResult(value: unknown): ChatHistorySearchResult {
+  if (!isRecord(value)) {
+    return { messages: [], scannedChats: 0, scannedMessages: 0 };
+  }
+  return {
+    messages: asArray(value.messages).filter(isChatHistoryMessage),
+    scannedChats:
+      typeof value.scannedChats === "number" ? value.scannedChats : 0,
+    scannedMessages:
+      typeof value.scannedMessages === "number" ? value.scannedMessages : 0,
+    ...(Array.isArray(value.errors) &&
+    value.errors.every((error) => typeof error === "string")
+      ? { errors: value.errors }
+      : {}),
+  };
+}
+
+function isChatHistoryMessage(
+  value: unknown,
+): value is ChatHistorySearchResult["messages"][number] {
+  return (
+    isRecord(value) &&
+    value.transport === "matrix" &&
+    typeof value.chatId === "string" &&
+    typeof value.messageId === "string" &&
+    typeof value.content === "string" &&
+    typeof value.timestamp === "number"
+  );
 }
 
 function isTransportHealth(value: unknown): value is TransportHealth {

@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import type { GatewayCommand, GatewayEvent } from "../src/index.js";
+import type {
+  ChatHistorySearchResult,
+  GatewayCommand,
+  GatewayEvent,
+} from "../src/index.js";
 import { isGatewayCommand } from "../src/index.js";
 
 test("models inbound message events", () => {
@@ -46,6 +50,26 @@ test("models inbound message events", () => {
   expect(event.message.content).toBe("hello");
   expect(event.message.attachments?.[0]?.kind).toBe("image");
   expect(event.message.attachments?.[0]?.download?.status).toBe("downloaded");
+});
+
+test("models chat history search results", () => {
+  const result = {
+    messages: [
+      {
+        transport: "matrix",
+        chatId: "!room:example.org",
+        messageId: "$event",
+        content: "deployment notes",
+        timestamp: 1_716_000_000_000,
+        userId: "@alice:example.org",
+        permalink: "https://matrix.to/#/!room%3Aexample.org/%24event",
+      },
+    ],
+    scannedChats: 1,
+    scannedMessages: 42,
+  } satisfies ChatHistorySearchResult;
+
+  expect(result.messages[0]?.permalink).toContain("matrix.to");
 });
 
 test("models inbound invite events", () => {

@@ -1,4 +1,6 @@
 import type {
+  ChatHistoryQuery,
+  ChatHistorySearchResult,
   InboundMessage,
   InboundReaction,
   MessageReference,
@@ -40,6 +42,7 @@ export interface TransportProvider {
   listChats?(): Promise<TransportChat[]>;
   listInvites?(): Promise<TransportInvite[]>;
   health?(): Promise<TransportHealth[]>;
+  searchHistory?(query: ChatHistoryQuery): Promise<ChatHistorySearchResult>;
   sendMessage(
     chatId: string,
     text: string,
