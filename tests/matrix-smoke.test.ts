@@ -89,17 +89,18 @@ async function cleanupJoinedRooms(provider: MatrixProvider): Promise<void> {
 
 async function cleanupSmokeAccounts(config: SmokeConfig): Promise<void> {
   await Promise.all([
-    cleanupSmokeAccount(config.homeserverUrl, config.accountA.accessToken),
-    cleanupSmokeAccount(config.homeserverUrl, config.accountB.accessToken),
-    cleanupSmokeAccount(config.homeserverUrl, config.accountC.accessToken),
+    cleanupSmokeAccount(config.homeserverUrl, config.accountA),
+    cleanupSmokeAccount(config.homeserverUrl, config.accountB),
+    cleanupSmokeAccount(config.homeserverUrl, config.accountC),
   ]);
 }
 
 async function cleanupSmokeAccount(
   homeserverUrl: string,
-  accessToken: string,
+  account: SmokeAccount,
 ): Promise<void> {
-  const client = new MatrixControlClient(homeserverUrl, accessToken);
+  const client = new MatrixControlClient(homeserverUrl, account.accessToken);
+  const userId = await client.getUserId();
   const sync = await client.syncNow();
   const joinedRoomIds = Object.keys(sync.rooms?.join ?? {});
   const invitedRoomIds = Object.keys(sync.rooms?.invite ?? {});
@@ -109,6 +110,14 @@ async function cleanupSmokeAccount(
       client.leaveRoom(roomId, "matrix smoke cleanup").catch(() => {}),
     ),
   );
+
+  if (!account.accountPassword) return;
+  const staleSmokeDeviceIds = (await client.listDevices())
+    .filter((device) => device.display_name?.startsWith("umg-smoke-"))
+    .map((device) => device.device_id);
+  await client
+    .deleteDevices(staleSmokeDeviceIds, userId, account.accountPassword)
+    .catch(() => {});
 }
 
 runMatrixSmoke(

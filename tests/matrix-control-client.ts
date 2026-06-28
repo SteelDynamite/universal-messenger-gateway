@@ -11,6 +11,11 @@ type MatrixLoginResponse = MatrixWhoamiResponse & {
   access_token: string;
 };
 
+type MatrixDevice = {
+  device_id: string;
+  display_name?: string;
+};
+
 export class MatrixControlClient {
   constructor(
     private readonly homeserverUrl: string,
@@ -95,6 +100,36 @@ export class MatrixControlClient {
     });
   }
 
+  async listDevices(): Promise<MatrixDevice[]> {
+    return (await this.request<{ devices: MatrixDevice[] }>("GET", "/devices"))
+      .devices;
+  }
+
+  async deleteDevices(
+    deviceIds: string[],
+    userId: string,
+    password: string,
+  ): Promise<void> {
+    if (deviceIds.length === 0) return;
+    const body = {
+      devices: deviceIds,
+      auth: passwordAuth(userId, password),
+    };
+    const response = await this.rawRequest("POST", "/delete_devices", body);
+    if (response.ok) return;
+    const error = (await response.json().catch(() => ({}))) as {
+      session?: string;
+      errcode?: string;
+    };
+    if (response.status !== 401 || !error.session) {
+      throw new Error(`Matrix POST /delete_devices failed: ${response.status}`);
+    }
+    await this.request("POST", "/delete_devices", {
+      devices: deviceIds,
+      auth: { ...passwordAuth(userId, password), session: error.session },
+    });
+  }
+
   async syncNow(): Promise<MatrixSyncResponse> {
     return await this.request<MatrixSyncResponse>("GET", "/sync?timeout=0");
   }
@@ -104,17 +139,7 @@ export class MatrixControlClient {
     path: string,
     body?: unknown,
   ): Promise<T> {
-    const response = await fetch(
-      `${this.homeserverUrl}/_matrix/client/v3${path}`,
-      {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      },
-    );
+    const response = await this.rawRequest(method, path, body);
     if (!response.ok) {
       throw new Error(`Matrix ${method} ${path} failed: ${response.status}`);
     }
@@ -123,6 +148,32 @@ export class MatrixControlClient {
     }
     return (await response.json()) as T;
   }
+
+  private async rawRequest(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<Response> {
+    return await fetch(`${this.homeserverUrl}/_matrix/client/v3${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${this.accessToken}`,
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  }
+}
+
+function passwordAuth(
+  userId: string,
+  password: string,
+): Record<string, unknown> {
+  return {
+    type: "m.login.password",
+    identifier: { type: "m.id.user", user: userId },
+    password,
+  };
 }
 
 export async function passwordLogin(

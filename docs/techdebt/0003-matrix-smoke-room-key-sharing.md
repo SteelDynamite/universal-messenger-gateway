@@ -28,6 +28,8 @@ still works as a fallback, but may reproduce stale-device E2EE failures.
 It logs to-device event types, target user/device IDs, and withheld reason/code, but not access
 tokens or room session keys.
 
+Smoke cleanup deletes old devices whose display name starts with `umg-smoke-` when account passwords are configured. This keeps stale per-run devices from accumulating and disrupting Megolm room-key sharing.
+
 ## Verification
 
 Passed locally with live Matrix smoke after fresh per-run login:
