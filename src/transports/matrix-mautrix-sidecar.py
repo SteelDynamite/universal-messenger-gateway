@@ -24,6 +24,7 @@ from mautrix.crypto.attachments import decrypt_attachment
 from mautrix.crypto.store import PgCryptoStateStore, PgCryptoStore
 from mautrix.errors.crypto import DecryptionError, SessionNotFound
 from mautrix.types import (
+    BaseFileInfo,
     EncryptedEvent,
     EventType,
     Format,
@@ -797,6 +798,23 @@ class Sidecar:
             content.relates_to = relates_to
         await client.send_message(room_id, content)
 
+    async def send_file(self, command: dict[str, Any]) -> None:
+        client = require_client(self.client)
+        room_id = str(command["chatId"])
+        path = Path(str(command["path"]))
+        data = path.read_bytes()
+        file_name = str(command.get("fileName") or path.name or "file")
+        mime_type = str(command.get("mimeType") or "application/octet-stream")
+        uri = await client.upload_media(data, mime_type=mime_type, filename=file_name)
+        relates_to = make_relates_to(room_id, command.get("replyTo"), command.get("threadTo"))
+        await client.send_file(
+            room_id,
+            uri,
+            info=BaseFileInfo(mimetype=mime_type, size=len(data)),
+            file_name=file_name,
+            relates_to=relates_to,
+        )
+
     async def send_reaction(self, command: dict[str, Any]) -> None:
         await require_client(self.client).react(
             str(command["chatId"]), str(command["messageId"]), str(command["reaction"])
@@ -995,6 +1013,7 @@ async def run() -> None:
         "health": lambda command: sidecar.health(),
         "search_history": sidecar.search_history,
         "send_message": sidecar.send_message,
+        "send_file": sidecar.send_file,
         "send_reaction": sidecar.send_reaction,
         "send_typing": sidecar.send_typing,
         "leave_chat": sidecar.leave_chat,

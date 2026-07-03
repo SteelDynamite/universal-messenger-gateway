@@ -114,6 +114,17 @@ export type SendMessageCommand = {
   threadTo?: MessageReference;
 };
 
+export type SendFileCommand = {
+  type: "send_file";
+  transport: TransportName;
+  chatId: string;
+  path: string;
+  fileName?: string;
+  mimeType?: string;
+  replyTo?: MessageReference;
+  threadTo?: MessageReference;
+};
+
 export type SendReactionCommand = {
   type: "send_reaction";
   transport: TransportName;
@@ -157,6 +168,7 @@ export type DisconnectTransportCommand = {
 
 export type GatewayCommand =
   | SendMessageCommand
+  | SendFileCommand
   | SendReactionCommand
   | SendTypingCommand
   | AcceptInviteCommand
@@ -204,6 +216,19 @@ export function isGatewayCommand(value: unknown): value is GatewayCommand {
       isTransportName(value.transport) &&
       typeof value.chatId === "string" &&
       typeof value.text === "string" &&
+      isOptionalMessageReference(value.replyTo) &&
+      isOptionalMessageReference(value.threadTo)
+    );
+  }
+
+  if (value.type === "send_file") {
+    return (
+      isTransportName(value.transport) &&
+      typeof value.chatId === "string" &&
+      typeof value.path === "string" &&
+      value.path.length > 0 &&
+      (value.fileName === undefined || typeof value.fileName === "string") &&
+      (value.mimeType === undefined || typeof value.mimeType === "string") &&
       isOptionalMessageReference(value.replyTo) &&
       isOptionalMessageReference(value.threadTo)
     );

@@ -49,6 +49,14 @@ export interface TransportProvider {
     replyTo?: MessageReference,
     threadTo?: MessageReference,
   ): Promise<void>;
+  sendFile?(
+    chatId: string,
+    path: string,
+    fileName?: string,
+    mimeType?: string,
+    replyTo?: MessageReference,
+    threadTo?: MessageReference,
+  ): Promise<void>;
   sendReaction?(
     chatId: string,
     messageId: string,

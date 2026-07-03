@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { afterEach, expect, test } from "vitest";
@@ -448,6 +448,31 @@ runMatrixSmoke(
     expect(rawFormattedEvent.content.formatted_body).toContain(
       "<code>code</code>",
     );
+
+    const outboundFileName = `umg-smoke-export-${runId}.html`;
+    const outboundFilePath = join(config.stateDir, outboundFileName);
+    await writeFile(outboundFilePath, `<html>${runId}</html>`);
+    const receivedFileByB = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === formattedRoomId &&
+        message.attachments?.[0]?.kind === "file" &&
+        message.attachments[0].fileName === outboundFileName,
+    );
+    if (!accountA.provider.sendFile)
+      throw new Error("Matrix provider missing sendFile");
+    await accountA.provider.sendFile(
+      formattedRoomId,
+      outboundFilePath,
+      outboundFileName,
+      "text/html",
+    );
+    const fileAtB = await receivedFileByB;
+    expect(fileAtB.attachments?.[0]).toMatchObject({
+      kind: "file",
+      fileName: outboundFileName,
+      mimeType: "text/html",
+    });
 
     const attachmentBody = `umg smoke attachment ${runId}`;
     const attachmentMediaId = await controlClient.uploadMedia(

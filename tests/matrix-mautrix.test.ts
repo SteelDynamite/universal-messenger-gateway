@@ -93,6 +93,13 @@ test("default Matrix factory can select the mautrix sidecar implementation", asy
     { transport: "matrix", chatId: "!room", messageId: "$reply" },
     { transport: "matrix", chatId: "!room", messageId: "$thread" },
   );
+  const exportPath = join(stateDir, "session.html");
+  await writeFile(exportPath, "<html>export</html>");
+  await provider.sendFile("!room", exportPath, "session.html", "text/html", {
+    transport: "matrix",
+    chatId: "!room",
+    messageId: "$reply",
+  });
   await provider.sendReaction("!room", "$event", "👍");
   await provider.sendTyping("!room");
   await provider.acceptInvite("!invite");
@@ -147,6 +154,16 @@ test("default Matrix factory can select the mautrix sidecar implementation", asy
       formattedBody: expect.stringContaining("<strong>matrix</strong>"),
       replyTo: { transport: "matrix", chatId: "!room", messageId: "$reply" },
       threadTo: { transport: "matrix", chatId: "!room", messageId: "$thread" },
+    }),
+  );
+  expect(log).toContainEqual(
+    expect.objectContaining({
+      type: "send_file",
+      chatId: "!room",
+      path: exportPath,
+      fileName: "session.html",
+      mimeType: "text/html",
+      replyTo: { transport: "matrix", chatId: "!room", messageId: "$reply" },
     }),
   );
 });

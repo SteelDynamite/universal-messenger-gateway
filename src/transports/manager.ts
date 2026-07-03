@@ -108,6 +108,23 @@ export class TransportManager {
         );
         break;
       }
+      case "send_file": {
+        const transport = this.getTransport(command.transport);
+        if (!transport.sendFile) {
+          throw new Error(
+            `Transport does not support file sends: ${transport.type}`,
+          );
+        }
+        await transport.sendFile(
+          command.chatId,
+          command.path,
+          command.fileName,
+          command.mimeType,
+          command.replyTo,
+          command.threadTo,
+        );
+        break;
+      }
       case "send_reaction": {
         const transport = this.getTransport(command.transport);
         if (!transport.sendReaction) {

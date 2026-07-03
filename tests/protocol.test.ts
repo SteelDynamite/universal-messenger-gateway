@@ -113,6 +113,19 @@ test("models outbound gateway commands", () => {
       },
     },
     {
+      type: "send_file",
+      transport: "matrix",
+      chatId: "!room:example.org",
+      path: "/tmp/session.html",
+      fileName: "session.html",
+      mimeType: "text/html",
+      replyTo: {
+        transport: "matrix",
+        chatId: "!room:example.org",
+        messageId: "$event",
+      },
+    },
+    {
       type: "send_reaction",
       transport: "matrix",
       chatId: "!room:example.org",
@@ -131,7 +144,8 @@ test("models outbound gateway commands", () => {
     },
   ] satisfies GatewayCommand[];
 
-  expect(commands).toHaveLength(4);
+  expect(commands).toHaveLength(5);
+  expect(commands.every(isGatewayCommand)).toBe(true);
 });
 
 test("models gateway admin commands", () => {

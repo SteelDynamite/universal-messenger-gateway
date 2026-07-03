@@ -255,6 +255,24 @@ export class MautrixMatrixProvider implements TransportProvider {
     });
   }
 
+  async sendFile(
+    chatId: string,
+    path: string,
+    fileName?: string,
+    mimeType?: string,
+    replyTo?: MessageReference,
+    threadTo?: MessageReference,
+  ): Promise<void> {
+    await this.request("send_file", {
+      chatId,
+      path,
+      ...(fileName ? { fileName } : {}),
+      ...(mimeType ? { mimeType } : {}),
+      ...(replyTo ? { replyTo } : {}),
+      ...(threadTo ? { threadTo } : {}),
+    });
+  }
+
   async sendReaction(
     chatId: string,
     messageId: string,
