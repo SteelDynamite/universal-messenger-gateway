@@ -39,6 +39,7 @@ export type ChatHistoryMessage = {
   username?: string;
   userId?: string;
   permalink?: string;
+  attachments?: MediaAttachment[];
   replyTo?: MessageReference;
   threadTo?: MessageReference;
 };

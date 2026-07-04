@@ -602,7 +602,7 @@ class Sidecar:
         skipped_decryptions = 0
         timed_out = False
 
-        async def collect_event(room_id: str, event: Any) -> str:
+        async def collect_event(room_id: str, event: Any, include_media_download: bool = False) -> str:
             nonlocal scanned_messages, skipped_decryptions
             event_timestamp = history_event_timestamp(event)
             if to_timestamp is not None and event_timestamp > to_timestamp:
@@ -610,7 +610,7 @@ class Sidecar:
             if from_timestamp is not None and event_timestamp < from_timestamp:
                 return "too_old"
             scanned_messages += 1
-            message, skipped_decryption = await self.history_message(room_id, event)
+            message, skipped_decryption = await self.history_message(room_id, event, include_media_download)
             if skipped_decryption and is_recent_history_event(event):
                 skipped_decryptions += 1
             if not message:
@@ -703,7 +703,7 @@ class Sidecar:
                 break
             if message_id:
                 try:
-                    await collect_event(room_id, await client.get_event(room_id, message_id))
+                    await collect_event(room_id, await client.get_event(room_id, message_id), True)
                 except Exception as error:
                     errors.append(f"{room_id}: {error}")
                 continue
@@ -745,7 +745,7 @@ class Sidecar:
             await asyncio.sleep(0.1)
         raise RuntimeError("Matrix sync has not produced a pagination token yet")
 
-    async def history_message(self, room_id: str, event: Any) -> tuple[dict[str, Any] | None, bool]:
+    async def history_message(self, room_id: str, event: Any, include_media_download: bool = False) -> tuple[dict[str, Any] | None, bool]:
         event, skipped_decryption = await self.decrypt_history_event(event)
         if not event:
             return None, skipped_decryption
@@ -753,21 +753,26 @@ class Sidecar:
         if raw_content.get("m.new_content"):
             return None, skipped_decryption
         body = raw_content.get("body")
-        if not isinstance(body, str) or not body.strip():
+        content = body.strip() if isinstance(body, str) else ""
+        attachment = media_attachment(raw_content)
+        if not content and not attachment:
             return None, skipped_decryption
         event_id = str(getattr(event, "event_id", "") or "")
         if not event_id:
             return None, skipped_decryption
+        if attachment and include_media_download:
+            attachment["download"] = await self.download_media_attachment(raw_content, attachment, event_id)
         return compact(
             {
                 "transport": "matrix",
                 "chatId": room_id,
                 "messageId": event_id,
-                "content": body.strip(),
+                "content": content or str(attachment.get("description") or attachment.get("fileName") or ""),
                 "username": extract_username(str(getattr(event, "sender", ""))),
                 "userId": str(getattr(event, "sender", "")) or None,
                 "timestamp": int(getattr(event, "timestamp", None) or now_ms()),
                 "permalink": matrix_permalink(room_id, event_id),
+                "attachments": [attachment] if attachment else None,
                 **message_references(room_id, raw_content),
             }
         ), skipped_decryption

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { afterEach, expect, test } from "vitest";
@@ -227,6 +228,61 @@ runMatrixMautrixSmoke(
           fileName: "mautrix-smoke.txt",
           mimeType: "text/plain",
           sizeBytes: 42,
+        },
+      ],
+    });
+
+    const imageBytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const imageMediaId = await controlClient.uploadMedia(
+      imageBytes,
+      "image/png",
+      `umg-mautrix-${runId}.png`,
+    );
+    const receivedImageByB = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === plainRoomId &&
+        message.attachments?.[0]?.mediaId === imageMediaId,
+    );
+    const imageEventId = await controlClient.sendMessage(plainRoomId, {
+      msgtype: "m.image",
+      body: `umg-mautrix-${runId}.png`,
+      url: imageMediaId,
+      info: { mimetype: "image/png", size: imageBytes.length },
+    });
+    const imageAtB = await receivedImageByB;
+    expect(imageAtB.attachments?.[0]).toMatchObject({
+      mediaId: imageMediaId,
+      kind: "image",
+      fileName: `umg-mautrix-${runId}.png`,
+      mimeType: "image/png",
+      download: {
+        status: "downloaded",
+        sizeBytes: imageBytes.length,
+        sha256: createHash("sha256").update(imageBytes).digest("hex"),
+      },
+    });
+    expect(imageAtB.attachments?.[0]?.download?.localPath).toBeTruthy();
+    expect(
+      await accountB.provider.searchHistory({
+        transport: "matrix",
+        chatIds: [plainRoomId],
+        messageId: imageEventId,
+        limit: 1,
+      }),
+    ).toMatchObject({
+      messages: [
+        {
+          attachments: [
+            {
+              mediaId: imageMediaId,
+              kind: "image",
+              download: { status: "downloaded" },
+            },
+          ],
         },
       ],
     });

@@ -54,3 +54,5 @@ Inbound Matrix `m.image`, `m.file`, `m.audio`, and `m.video` events produce an a
 - `download` status metadata.
 
 The mautrix Matrix transport downloads attachments up to `mediaDownloadMaxBytes` (default 5 MiB) into `state/media/` and reports `localPath`, downloaded byte count, and SHA-256. Oversized or failed downloads still emit the message with skipped/failed download metadata.
+
+Exact Matrix history lookup by `messageId` returns attachment metadata and downloads the referenced media within the same bound. Broad history scans may return attachment metadata but do not download every matched media item.

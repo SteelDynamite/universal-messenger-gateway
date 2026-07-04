@@ -63,7 +63,7 @@ export class MatrixControlClient {
   }
 
   async uploadMedia(
-    data: string,
+    data: BodyInit,
     contentType: string,
     filename: string,
   ): Promise<string> {
