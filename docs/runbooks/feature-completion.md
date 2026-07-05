@@ -25,8 +25,18 @@ set -a && source state/matrix-smoke.env && set +a && UMG_MATRIX_SMOKE=1 npm run 
 
 ## Document
 
-Update the narrowest relevant documentation in `docs/`. Update `docs/_MEMORY.md` when
-active project state changes.
+Distill durable knowledge from completed feature notes into the narrowest stable docs:
+
+- choices with rationale → `docs/decisions/`
+- future-applying rules → `docs/CONVENTIONS.md` or another stable docs file
+- repeatable steps → `docs/runbooks/`
+- recurring fixes → `docs/lessons/`
+- deferred deficiencies → `docs/techdebt/`
+- user-facing behavior → `README.md`
+
+Delete completed feature notes after distillation. Do not keep `status/complete` feature notes as durable docs.
+
+Update `docs/_MEMORY.md` when active project state changes.
 
 ## Commit and Push
 

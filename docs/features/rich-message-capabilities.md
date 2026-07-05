@@ -43,16 +43,6 @@ Likely surfaces:
 - Matrix inbound media events emit attachment metadata.
 - Automated Matrix smoke tests cover the above.
 
-## Implemented media handling
+## Related
 
-Inbound Matrix `m.image`, `m.file`, `m.audio`, and `m.video` events produce an attachment envelope with:
-
-- `mediaId` from Matrix `url` or encrypted-file `file.url`.
-- `kind`.
-- `fileName` / `description` from `body`.
-- `mimeType` and `sizeBytes` from `info` when present.
-- `download` status metadata.
-
-The mautrix Matrix transport downloads attachments up to `mediaDownloadMaxBytes` (default 5 MiB) into `state/media/` and reports `localPath`, downloaded byte count, and SHA-256. Images use `imageMediaDownloadMaxBytes` (default 25 MiB) so bots can downscale large screenshots before prompting. Oversized or failed downloads still emit the message with skipped/failed download metadata.
-
-Exact Matrix history lookup by `messageId` returns attachment metadata and downloads the referenced media within the same bound. Broad history scans may return attachment metadata but do not download every matched media item.
+- [Bound Matrix media downloads by media type](../decisions/0016-bound-matrix-media-downloads.md)
