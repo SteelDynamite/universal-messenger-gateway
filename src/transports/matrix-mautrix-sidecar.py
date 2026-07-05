@@ -67,6 +67,7 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 logging.getLogger("mau.client.crypto").addHandler(JsonLineErrorHandler())
 DEBUG_ROOM_KEYS = os.environ.get("UMG_MATRIX_DEBUG_ROOM_KEYS") == "1"
 DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES = 5 * 1024 * 1024
+DEFAULT_IMAGE_MEDIA_DOWNLOAD_MAX_BYTES = 25 * 1024 * 1024
 
 
 def debug_event(event: str, **fields: Any) -> None:
@@ -161,6 +162,7 @@ class Sidecar:
         self.connected_at = 0
         self.state_dir: Path | None = None
         self.media_download_max_bytes = DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES
+        self.image_media_download_max_bytes = DEFAULT_IMAGE_MEDIA_DOWNLOAD_MAX_BYTES
         self.recovery_key: str | None = None
         self.cross_sign_status: dict[str, Any] = {"enabled": False}
 
@@ -176,6 +178,8 @@ class Sidecar:
         encryption = bool(command.get("encryption", True))
         media_download_max_bytes = command.get("mediaDownloadMaxBytes")
         self.media_download_max_bytes = media_download_max_bytes if isinstance(media_download_max_bytes, int) and media_download_max_bytes >= 0 else DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES
+        image_media_download_max_bytes = command.get("imageMediaDownloadMaxBytes")
+        self.image_media_download_max_bytes = image_media_download_max_bytes if isinstance(image_media_download_max_bytes, int) and image_media_download_max_bytes >= 0 else DEFAULT_IMAGE_MEDIA_DOWNLOAD_MAX_BYTES
 
         crypto_db = None
         crypto_store = None
@@ -280,6 +284,7 @@ class Sidecar:
         self.room_member_count.clear()
         self.state_dir = None
         self.media_download_max_bytes = DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES
+        self.image_media_download_max_bytes = DEFAULT_IMAGE_MEDIA_DOWNLOAD_MAX_BYTES
         self.recovery_key = None
         self.cross_sign_status = {"enabled": False}
 
@@ -887,7 +892,7 @@ class Sidecar:
         attachment: dict[str, Any],
         event_id: str,
     ) -> dict[str, Any]:
-        max_bytes = self.media_download_max_bytes
+        max_bytes = self.image_media_download_max_bytes if attachment.get("kind") == "image" else self.media_download_max_bytes
         declared_size = attachment.get("sizeBytes")
         if max_bytes <= 0:
             return {"status": "skipped", "error": "media downloads disabled"}
