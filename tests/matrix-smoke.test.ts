@@ -6,6 +6,7 @@ import type {
   GatewayEvent,
   InboundMessage,
   InboundReaction,
+  InboundTypingSnapshot,
   TransportInvite,
   TransportProvider,
 } from "../src/index.js";
@@ -41,6 +42,7 @@ type SmokeParticipant = {
   provider: MatrixProvider;
   messages: InboundMessage[];
   reactions: InboundReaction[];
+  typings: InboundTypingSnapshot[];
   invites: TransportInvite[];
   errors: unknown[];
 };
@@ -351,6 +353,9 @@ runMatrixSmoke(
       accountA.reactions.push(reaction);
       writeGatewayEvent(gatewayOutput, { type: "reaction", reaction });
     });
+    gatewayManager.onTyping((typing) =>
+      writeGatewayEvent(gatewayOutput, { type: "typing", typing }),
+    );
     gatewayManager.onError((_transport, error) => accountA.errors.push(error));
 
     const gatewayMessage = `umg smoke gateway ${runId}`;
@@ -362,7 +367,7 @@ runMatrixSmoke(
     expect(
       await runGatewayStdio({
         input: Readable.from([
-          `${JSON.stringify({ type: "send_typing", transport: "matrix", chatId: roomId })}\n`,
+          `${JSON.stringify({ type: "set_typing", transport: "matrix", chatId: roomId, typing: true, timeoutMs: 10_000 })}\n`,
           `${JSON.stringify({ type: "send_message", transport: "matrix", chatId: roomId, text: gatewayMessage })}\n`,
         ]),
         errorOutput: collectOutput(),
@@ -374,6 +379,26 @@ runMatrixSmoke(
       chatId: roomId,
       content: gatewayMessage,
     });
+    expect(
+      await waitForTyping(
+        accountB,
+        (typing) =>
+          typing.chatId === roomId && typing.userIds.includes(accountAUserId),
+      ),
+    ).toMatchObject({ transport: "matrix", chatId: roomId });
+    await gatewayManager.handleCommand({
+      type: "set_typing",
+      transport: "matrix",
+      chatId: roomId,
+      typing: false,
+    });
+    expect(
+      await waitForTyping(
+        accountB,
+        (typing) =>
+          typing.chatId === roomId && !typing.userIds.includes(accountAUserId),
+      ),
+    ).toMatchObject({ transport: "matrix", chatId: roomId });
 
     const gatewayThreadMessage = `umg smoke gateway thread ${runId}`;
     const receivedGatewayThreadByB = waitForMessage(
@@ -411,6 +436,25 @@ runMatrixSmoke(
         messageId: requiredMessageId(gatewayInboundAtA),
       }),
     });
+    await accountB.provider.setTyping(roomId, true, 10_000);
+    expect(
+      await waitFor(() =>
+        readGatewayEvents(gatewayOutput).find(
+          (event) =>
+            event.type === "typing" &&
+            event.typing.chatId === roomId &&
+            event.typing.userIds.includes(accountBUserId),
+        ),
+      ),
+    ).toMatchObject({
+      type: "typing",
+      typing: expect.objectContaining({
+        transport: "matrix",
+        chatId: roomId,
+        userIds: expect.arrayContaining([accountBUserId]),
+      }),
+    });
+    await accountB.provider.setTyping(roomId, false);
 
     const formattedRoomId = await controlClient.createRoom({
       preset: "private_chat",
@@ -715,6 +759,7 @@ async function connectParticipant(
     ),
     messages: [],
     reactions: [],
+    typings: [],
     invites: [],
     errors: [],
   };
@@ -724,6 +769,7 @@ async function connectParticipant(
   participant.provider.onReaction((reaction) =>
     participant.reactions.push(reaction),
   );
+  participant.provider.onTyping((typing) => participant.typings.push(typing));
   participant.provider.onInvite((invite) => participant.invites.push(invite));
   participant.provider.onError((error) => participant.errors.push(error));
 
@@ -827,6 +873,7 @@ function registerParticipant(provider: MatrixProvider): SmokeParticipant {
     provider,
     messages: [],
     reactions: [],
+    typings: [],
     invites: [],
     errors: [],
   };
@@ -836,6 +883,7 @@ function registerParticipant(provider: MatrixProvider): SmokeParticipant {
   participant.provider.onReaction((reaction) =>
     participant.reactions.push(reaction),
   );
+  participant.provider.onTyping((typing) => participant.typings.push(typing));
   participant.provider.onInvite((invite) => participant.invites.push(invite));
   participant.provider.onError((error) => participant.errors.push(error));
   return participant;
@@ -918,6 +966,13 @@ async function waitForMessage(
     }
     return participant.messages.find(predicate);
   });
+}
+
+async function waitForTyping(
+  participant: SmokeParticipant,
+  predicate: (typing: InboundTypingSnapshot) => boolean,
+): Promise<InboundTypingSnapshot> {
+  return await waitFor(() => participant.typings.find(predicate));
 }
 
 async function waitForReaction(

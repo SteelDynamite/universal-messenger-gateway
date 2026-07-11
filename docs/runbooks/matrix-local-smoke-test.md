@@ -76,5 +76,5 @@ npm run build
 node dist/cli.js gateway
 ```
 
-It emits inbound messages as JSON-lines on stdout and reads `send_message` / `send_typing`
+It emits inbound events as JSON-lines on stdout and reads `send_message` / `set_typing`
 commands as JSON-lines on stdin.

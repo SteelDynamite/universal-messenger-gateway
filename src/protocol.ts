@@ -106,6 +106,13 @@ export type InboundInvite = {
   inviter?: string;
 };
 
+export type InboundTypingSnapshot = {
+  transport: TransportName;
+  chatId: string;
+  userIds: string[];
+  observedAt: number;
+};
+
 export type SendMessageCommand = {
   type: "send_message";
   transport: TransportName;
@@ -134,10 +141,12 @@ export type SendReactionCommand = {
   reaction: string;
 };
 
-export type SendTypingCommand = {
-  type: "send_typing";
+export type SetTypingCommand = {
+  type: "set_typing";
   transport: TransportName;
   chatId: string;
+  typing: boolean;
+  timeoutMs?: number;
 };
 
 export type AcceptInviteCommand = {
@@ -171,7 +180,7 @@ export type GatewayCommand =
   | SendMessageCommand
   | SendFileCommand
   | SendReactionCommand
-  | SendTypingCommand
+  | SetTypingCommand
   | AcceptInviteCommand
   | StatusCommand
   | ConfigureTransportCommand
@@ -190,6 +199,10 @@ export type GatewayEvent =
   | {
       type: "invite";
       invite: InboundInvite;
+    }
+  | {
+      type: "typing";
+      typing: InboundTypingSnapshot;
     }
   | {
       type: "admin_result";
@@ -235,8 +248,16 @@ export function isGatewayCommand(value: unknown): value is GatewayCommand {
     );
   }
 
-  if (value.type === "send_typing") {
-    return isTransportName(value.transport) && typeof value.chatId === "string";
+  if (value.type === "set_typing") {
+    return (
+      isTransportName(value.transport) &&
+      typeof value.chatId === "string" &&
+      typeof value.typing === "boolean" &&
+      (value.timeoutMs === undefined ||
+        (typeof value.timeoutMs === "number" &&
+          Number.isSafeInteger(value.timeoutMs) &&
+          value.timeoutMs > 0))
+    );
   }
 
   if (value.type === "send_reaction") {

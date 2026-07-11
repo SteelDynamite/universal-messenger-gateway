@@ -3,12 +3,14 @@ import type {
   InboundInvite,
   InboundMessage,
   InboundReaction,
+  InboundTypingSnapshot,
   TransportName,
 } from "../protocol.js";
 import type { TransportInvite, TransportProvider } from "./interface.js";
 
 export type GatewayMessageHandler = (message: InboundMessage) => void;
 export type GatewayReactionHandler = (reaction: InboundReaction) => void;
+export type GatewayTypingHandler = (typing: InboundTypingSnapshot) => void;
 export type GatewayInviteHandler = (invite: InboundInvite) => void;
 export type GatewayTransportErrorHandler = (
   transport: TransportName,
@@ -33,6 +35,7 @@ export class TransportManager {
   readonly transports = new Map<TransportName, TransportProvider>();
   readonly #messageHandlers = new Set<GatewayMessageHandler>();
   readonly #reactionHandlers = new Set<GatewayReactionHandler>();
+  readonly #typingHandlers = new Set<GatewayTypingHandler>();
   readonly #inviteHandlers = new Set<GatewayInviteHandler>();
   readonly #errorHandlers = new Set<GatewayTransportErrorHandler>();
 
@@ -52,6 +55,7 @@ export class TransportManager {
     transport.onReaction?.((reaction) =>
       this.emitReaction(transport.type, reaction),
     );
+    transport.onTyping?.((typing) => this.emitTyping(transport.type, typing));
     transport.onInvite?.((invite) => this.emitInvite(transport.type, invite));
     transport.onError((error) => this.emitError(transport.type, error));
   }
@@ -62,6 +66,10 @@ export class TransportManager {
 
   onReaction(handler: GatewayReactionHandler): void {
     this.#reactionHandlers.add(handler);
+  }
+
+  onTyping(handler: GatewayTypingHandler): void {
+    this.#typingHandlers.add(handler);
   }
 
   onInvite(handler: GatewayInviteHandler): void {
@@ -139,9 +147,13 @@ export class TransportManager {
         );
         break;
       }
-      case "send_typing": {
+      case "set_typing": {
         const transport = this.getTransport(command.transport);
-        await transport.sendTyping(command.chatId);
+        await transport.setTyping(
+          command.chatId,
+          command.typing,
+          command.timeoutMs,
+        );
         break;
       }
       case "accept_invite": {
@@ -179,6 +191,15 @@ export class TransportManager {
   ): void {
     for (const handler of this.#reactionHandlers) {
       handler({ ...reaction, transport });
+    }
+  }
+
+  private emitTyping(
+    transport: TransportName,
+    typing: InboundTypingSnapshot,
+  ): void {
+    for (const handler of this.#typingHandlers) {
+      handler({ ...typing, transport });
     }
   }
 

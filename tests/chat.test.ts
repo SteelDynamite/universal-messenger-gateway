@@ -423,7 +423,7 @@ class FakeTransport implements TransportProvider {
     this.sentMessages.push({ chatId, text });
   }
 
-  async sendTyping(): Promise<void> {}
+  async setTyping(): Promise<void> {}
 
   async leaveChat(chatId: string, reason?: string): Promise<void> {
     this.leftChats.push(chatId);

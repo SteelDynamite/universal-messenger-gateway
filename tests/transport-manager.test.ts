@@ -4,6 +4,7 @@ import type {
   InboundInvite,
   InboundMessage,
   InboundReaction,
+  InboundTypingSnapshot,
   MessageReference,
   TransportProvider,
 } from "../src/index.js";
@@ -25,9 +26,11 @@ test("fans outbound commands to the selected transport", async () => {
     text: "hello",
   });
   await manager.handleCommand({
-    type: "send_typing",
+    type: "set_typing",
     transport: "matrix",
     chatId: "room",
+    typing: true,
+    timeoutMs: 10_000,
   });
   await manager.handleCommand({
     type: "send_reaction",
@@ -46,7 +49,9 @@ test("fans outbound commands to the selected transport", async () => {
   expect(matrix.sentReactions).toEqual([
     { chatId: "room", messageId: "$event", reaction: "+1" },
   ]);
-  expect(matrix.sentTyping).toEqual(["room"]);
+  expect(matrix.typingUpdates).toEqual([
+    { chatId: "room", typing: true, timeoutMs: 10_000 },
+  ]);
   expect(matrix.acceptedInvites).toEqual(["invite-room"]);
 });
 
@@ -133,6 +138,29 @@ test("fans inbound transport reactions to gateway handlers", () => {
   ]);
 });
 
+test("fans inbound typing snapshots to gateway handlers", () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+  const snapshots: InboundTypingSnapshot[] = [];
+
+  manager.onTyping((typing) => snapshots.push(typing));
+  matrix.emitTyping({
+    transport: "slack",
+    chatId: "room",
+    userIds: ["@alice:example.org"],
+    observedAt: 1,
+  });
+
+  expect(snapshots).toEqual([
+    {
+      transport: "matrix",
+      chatId: "room",
+      userIds: ["@alice:example.org"],
+      observedAt: 1,
+    },
+  ]);
+});
+
 test("fans inbound transport invites to gateway handlers", () => {
   const matrix = new FakeTransport("matrix");
   const manager = new TransportManager([matrix]);
@@ -146,6 +174,33 @@ test("fans inbound transport invites to gateway handlers", () => {
       transport: "matrix",
       inviteId: "invite-room",
       inviter: "@alice:example.org",
+    },
+  ]);
+});
+
+test("emits inbound typing events from the gateway client", () => {
+  const matrix = new FakeTransport("matrix");
+  const manager = new TransportManager([matrix]);
+  const client = new ManagerGatewayClient({ manager });
+  const events: GatewayEvent[] = [];
+
+  client.onEvent((event) => events.push(event));
+  matrix.emitTyping({
+    transport: "matrix",
+    chatId: "room",
+    userIds: ["@alice:example.org"],
+    observedAt: 1,
+  });
+
+  expect(events).toEqual([
+    {
+      type: "typing",
+      typing: {
+        transport: "matrix",
+        chatId: "room",
+        userIds: ["@alice:example.org"],
+        observedAt: 1,
+      },
     },
   ]);
 });
@@ -196,9 +251,10 @@ test("rejects commands for unavailable transports", async () => {
 
   await expect(
     manager.handleCommand({
-      type: "send_typing",
+      type: "set_typing",
       transport: "matrix",
       chatId: "room",
+      typing: true,
     }),
   ).rejects.toThrow(UnknownTransportError);
 });
@@ -216,10 +272,15 @@ class FakeTransport implements TransportProvider {
     messageId: string;
     reaction: string;
   }> = [];
-  sentTyping: string[] = [];
+  typingUpdates: Array<{
+    chatId: string;
+    typing: boolean;
+    timeoutMs?: number;
+  }> = [];
   acceptedInvites: string[] = [];
   readonly #messageHandlers = new Set<(message: InboundMessage) => void>();
   readonly #reactionHandlers = new Set<(reaction: InboundReaction) => void>();
+  readonly #typingHandlers = new Set<(typing: InboundTypingSnapshot) => void>();
   readonly #inviteHandlers = new Set<
     (invite: { inviteId: string; inviter?: string }) => void
   >();
@@ -257,8 +318,16 @@ class FakeTransport implements TransportProvider {
     this.sentReactions.push({ chatId, messageId, reaction });
   }
 
-  async sendTyping(chatId: string): Promise<void> {
-    this.sentTyping.push(chatId);
+  async setTyping(
+    chatId: string,
+    typing: boolean,
+    timeoutMs?: number,
+  ): Promise<void> {
+    this.typingUpdates.push({
+      chatId,
+      typing,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    });
   }
 
   async acceptInvite(inviteId: string): Promise<void> {
@@ -271,6 +340,10 @@ class FakeTransport implements TransportProvider {
 
   onReaction(handler: (reaction: InboundReaction) => void): void {
     this.#reactionHandlers.add(handler);
+  }
+
+  onTyping(handler: (typing: InboundTypingSnapshot) => void): void {
+    this.#typingHandlers.add(handler);
   }
 
   onInvite(
@@ -292,6 +365,12 @@ class FakeTransport implements TransportProvider {
   emitReaction(reaction: InboundReaction): void {
     for (const handler of this.#reactionHandlers) {
       handler(reaction);
+    }
+  }
+
+  emitTyping(typing: InboundTypingSnapshot): void {
+    for (const handler of this.#typingHandlers) {
+      handler(typing);
     }
   }
 

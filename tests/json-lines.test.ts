@@ -7,11 +7,11 @@ import {
 
 test("reads newline-delimited JSON values", async () => {
   const input = Readable.from([
-    '{"type":"send_typing","transport":"matrix","chatId":"room"}\n\n',
+    '{"type":"set_typing","transport":"matrix","chatId":"room","typing":true}\n\n',
   ]);
 
   await expect(collect(input)).resolves.toEqual([
-    { type: "send_typing", transport: "matrix", chatId: "room" },
+    { type: "set_typing", transport: "matrix", chatId: "room", typing: true },
   ]);
 });
 

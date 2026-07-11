@@ -575,7 +575,7 @@ function registerGatewayClientHandlers({
       refreshPrompt();
       return;
     }
-    if (event.type === "reaction") {
+    if (event.type === "reaction" || event.type === "typing") {
       return;
     }
     if (event.type === "invite") {

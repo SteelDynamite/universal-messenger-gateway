@@ -54,7 +54,7 @@ class FakeTransport implements TransportProvider {
 
   async sendMessage(): Promise<void> {}
 
-  async sendTyping(): Promise<void> {}
+  async setTyping(): Promise<void> {}
 
   onMessage(): void {}
 

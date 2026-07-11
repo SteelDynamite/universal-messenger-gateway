@@ -3,12 +3,14 @@ import type {
   ChatHistorySearchResult,
   InboundMessage,
   InboundReaction,
+  InboundTypingSnapshot,
   MessageReference,
   TransportName,
 } from "../protocol.js";
 
 export type TransportMessageHandler = (message: InboundMessage) => void;
 export type TransportReactionHandler = (reaction: InboundReaction) => void;
+export type TransportTypingHandler = (typing: InboundTypingSnapshot) => void;
 export type TransportInviteHandler = (invite: TransportInvite) => void;
 export type TransportErrorHandler = (error: unknown) => void;
 
@@ -62,12 +64,13 @@ export interface TransportProvider {
     messageId: string,
     reaction: string,
   ): Promise<void>;
-  sendTyping(chatId: string): Promise<void>;
+  setTyping(chatId: string, typing: boolean, timeoutMs?: number): Promise<void>;
   leaveChat?(chatId: string, reason?: string): Promise<void>;
   acceptInvite?(inviteId: string): Promise<void>;
   rejectInvite?(inviteId: string, reason?: string): Promise<void>;
   onMessage(handler: TransportMessageHandler): void;
   onReaction?(handler: TransportReactionHandler): void;
+  onTyping?(handler: TransportTypingHandler): void;
   onInvite?(handler: TransportInviteHandler): void;
   onError(handler: TransportErrorHandler): void;
 }

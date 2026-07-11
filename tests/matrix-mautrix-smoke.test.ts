@@ -491,7 +491,7 @@ runMatrixMautrixSmoke(
     expect(
       await runGatewayStdio({
         input: Readable.from([
-          `${JSON.stringify({ type: "send_typing", transport: "matrix", chatId: encryptedRoomId })}\n`,
+          `${JSON.stringify({ type: "set_typing", transport: "matrix", chatId: encryptedRoomId, typing: true, timeoutMs: 10_000 })}\n`,
           `${JSON.stringify({ type: "send_message", transport: "matrix", chatId: encryptedRoomId, text: gatewayMessage })}\n`,
         ]),
         errorOutput: collectOutput(),

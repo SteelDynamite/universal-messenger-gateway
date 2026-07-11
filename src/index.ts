@@ -33,10 +33,11 @@ export type {
   InboundInvite,
   InboundMessage,
   InboundReaction,
+  InboundTypingSnapshot,
   MessageReference,
   SendMessageCommand,
   SendReactionCommand,
-  SendTypingCommand,
+  SetTypingCommand,
   TransportName,
 } from "./protocol.js";
 
@@ -58,6 +59,7 @@ export {
   type GatewayInviteHandler,
   type GatewayMessageHandler,
   type GatewayReactionHandler,
+  type GatewayTypingHandler,
   type GatewayTransportErrorHandler,
 } from "./transports/manager.js";
 export type {
@@ -70,6 +72,7 @@ export type {
   TransportMessageHandler,
   TransportProvider,
   TransportReactionHandler,
+  TransportTypingHandler,
 } from "./transports/interface.js";
 export {
   createMatrixProvider,

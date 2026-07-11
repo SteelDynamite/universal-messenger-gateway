@@ -4,7 +4,7 @@ import { runGatewayStdio } from "../src/index.js";
 
 test("passes valid commands to the gateway handler", async () => {
   const input = Readable.from([
-    '{"type":"send_typing","transport":"matrix","chatId":"room"}\n{"type":"send_reaction","transport":"matrix","chatId":"room","messageId":"$event","reaction":"+1"}\n{"type":"accept_invite","transport":"matrix","inviteId":"invite-room"}\n{"type":"status"}\n',
+    '{"type":"set_typing","transport":"matrix","chatId":"room","typing":true}\n{"type":"send_reaction","transport":"matrix","chatId":"room","messageId":"$event","reaction":"+1"}\n{"type":"accept_invite","transport":"matrix","inviteId":"invite-room"}\n{"type":"status"}\n',
   ]);
   const errorOutput = sink();
   const commands = [];
@@ -19,7 +19,7 @@ test("passes valid commands to the gateway handler", async () => {
 
   expect(exitCode).toBe(0);
   expect(commands).toEqual([
-    { type: "send_typing", transport: "matrix", chatId: "room" },
+    { type: "set_typing", transport: "matrix", chatId: "room", typing: true },
     {
       type: "send_reaction",
       transport: "matrix",
@@ -34,7 +34,7 @@ test("passes valid commands to the gateway handler", async () => {
 
 test("emits command errors without stopping the stream", async () => {
   const input = Readable.from([
-    '{"type":"send_message","transport":"matrix","chatId":"room","text":"hello"}\n{"type":"send_typing","transport":"matrix","chatId":"room"}\n',
+    '{"type":"send_message","transport":"matrix","chatId":"room","text":"hello"}\n{"type":"set_typing","transport":"matrix","chatId":"room","typing":true}\n',
   ]);
   const errorOutput = sink();
   const events = [];
@@ -55,7 +55,7 @@ test("emits command errors without stopping the stream", async () => {
   });
 
   expect(exitCode).toBe(0);
-  expect(commands).toEqual(["send_message", "send_typing"]);
+  expect(commands).toEqual(["send_message", "set_typing"]);
   expect(events).toEqual([
     {
       type: "command_error",
@@ -69,7 +69,7 @@ test("emits command errors without stopping the stream", async () => {
 
 test("rejects invalid commands without stopping the stream", async () => {
   const input = Readable.from([
-    '{"type":"unknown"}\n{"type":"send_typing","transport":"matrix","chatId":"room"}\n',
+    '{"type":"send_typing","transport":"matrix","chatId":"room"}\n{"type":"set_typing","transport":"matrix","chatId":"room","typing":false}\n',
   ]);
   const errorOutput = sink();
   const commands = [];

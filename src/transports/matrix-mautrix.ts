@@ -10,6 +10,7 @@ import type {
   ChatHistorySearchResult,
   InboundMessage,
   InboundReaction,
+  InboundTypingSnapshot,
   MessageReference,
 } from "../protocol.js";
 import type {
@@ -45,6 +46,7 @@ type SidecarEnvelope = {
   type?: unknown;
   message?: unknown;
   reaction?: unknown;
+  typing?: unknown;
   invite?: unknown;
   category?: unknown;
   roomId?: unknown;
@@ -75,6 +77,7 @@ export class MautrixMatrixProvider implements TransportProvider {
   #pending = new Map<number, PendingRequest>();
   #messageHandler?: (message: InboundMessage) => void;
   #reactionHandler?: (reaction: InboundReaction) => void;
+  #typingHandler?: (typing: InboundTypingSnapshot) => void;
   #inviteHandler?: (invite: TransportInvite) => void;
   #errorHandler?: (error: unknown) => void;
   #readerDone: Promise<void> | undefined;
@@ -288,9 +291,17 @@ export class MautrixMatrixProvider implements TransportProvider {
     await this.request("send_reaction", { chatId, messageId, reaction });
   }
 
-  async sendTyping(chatId: string): Promise<void> {
+  async setTyping(
+    chatId: string,
+    typing: boolean,
+    timeoutMs?: number,
+  ): Promise<void> {
     try {
-      await this.request("send_typing", { chatId });
+      await this.request("set_typing", {
+        chatId,
+        typing,
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      });
     } catch {
       // Typing indicators are best effort.
     }
@@ -317,6 +328,10 @@ export class MautrixMatrixProvider implements TransportProvider {
 
   onReaction(handler: (reaction: InboundReaction) => void): void {
     this.#reactionHandler = handler;
+  }
+
+  onTyping(handler: (typing: InboundTypingSnapshot) => void): void {
+    this.#typingHandler = handler;
   }
 
   onInvite(handler: (invite: TransportInvite) => void): void {
@@ -390,6 +405,13 @@ export class MautrixMatrixProvider implements TransportProvider {
     }
     if (envelope.type === "reaction" && isInboundReaction(envelope.reaction)) {
       this.#reactionHandler?.(envelope.reaction);
+      return;
+    }
+    if (
+      envelope.type === "typing" &&
+      isInboundTypingSnapshot(envelope.typing)
+    ) {
+      this.#typingHandler?.(envelope.typing);
       return;
     }
     if (envelope.type === "invite" && isTransportInvite(envelope.invite)) {
@@ -545,6 +567,20 @@ function isInboundReaction(value: unknown): value is InboundReaction {
     typeof value.messageId === "string" &&
     typeof value.reaction === "string" &&
     typeof value.timestamp === "number"
+  );
+}
+
+function isInboundTypingSnapshot(
+  value: unknown,
+): value is InboundTypingSnapshot {
+  return (
+    isRecord(value) &&
+    value.transport === "matrix" &&
+    typeof value.chatId === "string" &&
+    Array.isArray(value.userIds) &&
+    value.userIds.every((userId) => typeof userId === "string") &&
+    typeof value.observedAt === "number" &&
+    Number.isFinite(value.observedAt)
   );
 }
 

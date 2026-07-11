@@ -75,7 +75,7 @@ Current default Matrix smoke coverage:
 - Encrypted Matrix send/receive.
 - Direct replies, threads, and replies inside threads.
 - Reactions.
-- Typing command path.
+- Typing snapshots and explicit start/clear command path.
 - Media attachment metadata.
 - Group mention/member-count metadata.
 - Gateway JSON-lines send/event path.
@@ -94,7 +94,8 @@ Current default Matrix smoke coverage:
 - Account B sends a Matrix thread message; account A receives normalized text and `threadTo` without fallback `replyTo`.
 - Account A replies inside that thread; account B receives normalized `replyTo` and `threadTo`.
 - Account A reacts to Account B's message; account B receives normalized reaction context.
-- Account A sends typing and text through the gateway JSON-lines command path.
+- Account A starts, then clears typing through the gateway JSON-lines command path; account B receives both snapshots.
+- Account B typing is emitted as an inbound gateway snapshot for account A.
 - Account A sends threaded text through the gateway command path.
 - Account B sends text that is serialized through the gateway JSON-lines event path.
 - Account A sends formatted text in an unencrypted room; Matrix receives the formatted body.

@@ -39,6 +39,7 @@ from mautrix.types import (
     StateEvent,
     TextMessageEventContent,
     TrustState,
+    TypingEvent,
 )
 from mautrix.util.async_db import Database
 
@@ -252,6 +253,7 @@ class Sidecar:
 
         client.add_event_handler(EventType.ROOM_MESSAGE, self.handle_message)
         client.add_event_handler(EventType.REACTION, self.handle_reaction)
+        client.add_event_handler(EventType.TYPING, self.handle_typing)
         client.add_event_handler(EventType.ROOM_MEMBER, self.handle_member)
         self.register_debug_handlers(client)
         self.client = client
@@ -830,8 +832,9 @@ class Sidecar:
             str(command["chatId"]), str(command["messageId"]), str(command["reaction"])
         )
 
-    async def send_typing(self, command: dict[str, Any]) -> None:
-        await require_client(self.client).set_typing(str(command["chatId"]), 10000)
+    async def set_typing(self, command: dict[str, Any]) -> None:
+        timeout_ms = int(command.get("timeoutMs", 10000)) if bool(command["typing"]) else 0
+        await require_client(self.client).set_typing(str(command["chatId"]), timeout_ms)
 
     async def leave_chat(self, command: dict[str, Any]) -> None:
         room_id = str(command["chatId"])
@@ -929,6 +932,19 @@ class Sidecar:
         except Exception as error:
             return {"status": "failed", "error": str(error)}
 
+    async def handle_typing(self, event: TypingEvent) -> None:
+        await emit(
+            {
+                "type": "typing",
+                "typing": {
+                    "transport": "matrix",
+                    "chatId": str(event.room_id),
+                    "userIds": [str(user_id) for user_id in event.content.user_ids],
+                    "observedAt": now_ms(),
+                },
+            }
+        )
+
     async def handle_reaction(self, event: ReactionEvent) -> None:
         room_id = str(event.room_id)
         if str(event.sender) == self.bot_user_id or int(event.timestamp or 0) < self.connected_at:
@@ -1025,7 +1041,7 @@ async def run() -> None:
         "send_message": sidecar.send_message,
         "send_file": sidecar.send_file,
         "send_reaction": sidecar.send_reaction,
-        "send_typing": sidecar.send_typing,
+        "set_typing": sidecar.set_typing,
         "leave_chat": sidecar.leave_chat,
         "accept_invite": sidecar.accept_invite,
         "reject_invite": sidecar.reject_invite,

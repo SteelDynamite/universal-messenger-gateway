@@ -133,9 +133,11 @@ test("models outbound gateway commands", () => {
       reaction: "+1",
     },
     {
-      type: "send_typing",
+      type: "set_typing",
       transport: "matrix",
       chatId: "!room:example.org",
+      typing: true,
+      timeoutMs: 10_000,
     },
     {
       type: "accept_invite",
@@ -146,6 +148,39 @@ test("models outbound gateway commands", () => {
 
   expect(commands).toHaveLength(5);
   expect(commands.every(isGatewayCommand)).toBe(true);
+});
+
+test("rejects legacy and invalid typing commands", () => {
+  expect(
+    isGatewayCommand({
+      type: "send_typing",
+      transport: "matrix",
+      chatId: "!room:example.org",
+    }),
+  ).toBe(false);
+  expect(
+    isGatewayCommand({
+      type: "set_typing",
+      transport: "matrix",
+      chatId: "!room:example.org",
+      typing: true,
+      timeoutMs: 0,
+    }),
+  ).toBe(false);
+});
+
+test("models inbound typing snapshots", () => {
+  const event = {
+    type: "typing",
+    typing: {
+      transport: "matrix",
+      chatId: "!room:example.org",
+      userIds: ["@alice:example.org"],
+      observedAt: 1_716_000_000_000,
+    },
+  } satisfies GatewayEvent;
+
+  expect(event.typing.userIds).toEqual(["@alice:example.org"]);
 });
 
 test("models gateway admin commands", () => {

@@ -71,6 +71,9 @@ export class ManagerGatewayClient implements GatewayClient {
     options.manager.onReaction((reaction) =>
       this.#emit({ type: "reaction", reaction }),
     );
+    options.manager.onTyping((typing) =>
+      this.#emit({ type: "typing", typing }),
+    );
     options.manager.onInvite((invite) =>
       this.#emit({ type: "invite", invite }),
     );
