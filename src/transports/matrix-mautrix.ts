@@ -11,6 +11,7 @@ import type {
   InboundMessage,
   InboundReaction,
   InboundTypingSnapshot,
+  MediaAttachmentKind,
   MessageReference,
 } from "../protocol.js";
 import type {
@@ -272,12 +273,14 @@ export class MautrixMatrixProvider implements TransportProvider {
     mimeType?: string,
     replyTo?: MessageReference,
     threadTo?: MessageReference,
+    kind?: MediaAttachmentKind,
   ): Promise<void> {
     await this.request("send_file", {
       chatId,
       path,
       ...(fileName ? { fileName } : {}),
       ...(mimeType ? { mimeType } : {}),
+      ...(kind ? { kind } : {}),
       ...(replyTo ? { replyTo } : {}),
       ...(threadTo ? { threadTo } : {}),
     });

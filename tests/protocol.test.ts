@@ -119,6 +119,7 @@ test("models outbound gateway commands", () => {
       path: "/tmp/session.html",
       fileName: "session.html",
       mimeType: "text/html",
+      kind: "file",
       replyTo: {
         transport: "matrix",
         chatId: "!room:example.org",

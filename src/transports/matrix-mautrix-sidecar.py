@@ -28,6 +28,7 @@ from mautrix.types import (
     EncryptedEvent,
     EventType,
     Format,
+    ImageInfo,
     InReplyTo,
     Membership,
     MessageEvent,
@@ -69,6 +70,7 @@ logging.getLogger("mau.client.crypto").addHandler(JsonLineErrorHandler())
 DEBUG_ROOM_KEYS = os.environ.get("UMG_MATRIX_DEBUG_ROOM_KEYS") == "1"
 DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES = 5 * 1024 * 1024
 DEFAULT_IMAGE_MEDIA_DOWNLOAD_MAX_BYTES = 25 * 1024 * 1024
+MAX_OUTBOUND_ATTACHMENT_BYTES = 1024 * 1024 * 1024
 
 
 def debug_event(event: str, **fields: Any) -> None:
@@ -814,16 +816,31 @@ class Sidecar:
         client = require_client(self.client)
         room_id = str(command["chatId"])
         path = Path(str(command["path"]))
-        data = path.read_bytes()
+        if not path.is_file():
+            raise ValueError("attachment path must be a regular file")
+        size = path.stat().st_size
+        if size > MAX_OUTBOUND_ATTACHMENT_BYTES:
+            raise ValueError("attachment exceeds the 1 GiB upload limit")
         file_name = str(command.get("fileName") or path.name or "file")
         mime_type = str(command.get("mimeType") or "application/octet-stream")
-        uri = await client.upload_media(data, mime_type=mime_type, filename=file_name)
+        kind = str(command.get("kind") or "file")
+        uri = await client.upload_media(file_chunks(path), mime_type=mime_type, filename=file_name, size=size)
         relates_to = make_relates_to(room_id, command.get("replyTo"), command.get("threadTo"))
+        if kind == "image":
+            await client.send_image(
+                room_id,
+                uri,
+                info=ImageInfo(mimetype=mime_type, size=size),
+                file_name=file_name,
+                relates_to=relates_to,
+            )
+            return
         await client.send_file(
             room_id,
             uri,
-            info=BaseFileInfo(mimetype=mime_type, size=len(data)),
+            info=BaseFileInfo(mimetype=mime_type, size=size),
             file_name=file_name,
+            file_type={"audio": MessageType.AUDIO, "video": MessageType.VIDEO}.get(kind, MessageType.FILE),
             relates_to=relates_to,
         )
 
@@ -1081,6 +1098,12 @@ async def emit(value: dict[str, Any]) -> None:
 
 class OversizedMediaError(Exception):
     pass
+
+
+async def file_chunks(path: Path, chunk_size: int = 1024 * 1024):
+    with path.open("rb") as file:
+        while chunk := await asyncio.to_thread(file.read, chunk_size):
+            yield chunk
 
 
 async def limited_matrix_download(client: Client, media_id: str, max_bytes: int) -> bytes:

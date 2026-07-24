@@ -4,6 +4,7 @@ import type {
   InboundMessage,
   InboundReaction,
   InboundTypingSnapshot,
+  MediaAttachmentKind,
   MessageReference,
   TransportName,
 } from "../protocol.js";
@@ -58,6 +59,7 @@ export interface TransportProvider {
     mimeType?: string,
     replyTo?: MessageReference,
     threadTo?: MessageReference,
+    kind?: MediaAttachmentKind,
   ): Promise<void>;
   sendReaction?(
     chatId: string,

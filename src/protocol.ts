@@ -129,6 +129,7 @@ export type SendFileCommand = {
   path: string;
   fileName?: string;
   mimeType?: string;
+  kind?: MediaAttachmentKind;
   replyTo?: MessageReference;
   threadTo?: MessageReference;
 };
@@ -243,6 +244,8 @@ export function isGatewayCommand(value: unknown): value is GatewayCommand {
       value.path.length > 0 &&
       (value.fileName === undefined || typeof value.fileName === "string") &&
       (value.mimeType === undefined || typeof value.mimeType === "string") &&
+      (value.kind === undefined ||
+        ["image", "file", "audio", "video"].includes(value.kind as string)) &&
       isOptionalMessageReference(value.replyTo) &&
       isOptionalMessageReference(value.threadTo)
     );

@@ -130,6 +130,7 @@ export class TransportManager {
           command.mimeType,
           command.replyTo,
           command.threadTo,
+          command.kind,
         );
         break;
       }

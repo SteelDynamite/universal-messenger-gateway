@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { afterEach, expect, test } from "vitest";
@@ -266,6 +267,37 @@ runMatrixMautrixSmoke(
       },
     });
     expect(imageAtB.attachments?.[0]?.download?.localPath).toBeTruthy();
+
+    const outboundImageName = `umg-mautrix-outbound-${runId}.png`;
+    const outboundImagePath = join(config.stateDir, outboundImageName);
+    await writeFile(outboundImagePath, imageBytes);
+    const outboundImageReceived = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === plainRoomId &&
+        message.attachments?.[0]?.kind === "image" &&
+        message.attachments[0].fileName === outboundImageName,
+    );
+    try {
+      await accountA.provider.sendFile(
+        plainRoomId,
+        outboundImagePath,
+        outboundImageName,
+        "image/png",
+        undefined,
+        undefined,
+        "image",
+      );
+      expect((await outboundImageReceived).attachments?.[0]).toMatchObject({
+        kind: "image",
+        fileName: outboundImageName,
+        mimeType: "image/png",
+        sizeBytes: imageBytes.length,
+      });
+    } finally {
+      await rm(outboundImagePath, { force: true });
+    }
+
     expect(
       await accountB.provider.searchHistory({
         transport: "matrix",
