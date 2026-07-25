@@ -48,6 +48,7 @@ What carries over from the extension:
 ## Project structure
 
 - `src/protocol.ts` — standard gateway event and command envelope.
+- `src/agent-operations.ts` — generated-help, bounded non-admin agent operation registry.
 - `src/config.ts` — `state/config.json` loading and validation.
 - `src/cli.ts` — cli entrypoint for `gateway`, `chat`, and `setup`.
 - `src/setup.ts` — interactive setup for transport config and local secret files.

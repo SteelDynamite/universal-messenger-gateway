@@ -10,6 +10,17 @@ export {
   type GatewayClient,
   type GatewayEventHandler,
 } from "./gateway-client.js";
+export {
+  AGENT_OPERATION_DESCRIPTORS,
+  executeAgentOperation,
+  type AgentOperationDescriptor,
+  type AgentOperationGroup,
+  type AgentOperationHelp,
+  type AgentOperationName,
+  type AgentOperationRequest,
+  type AgentOperationResult,
+  type JsonSchema,
+} from "./agent-operations.js";
 export type {
   GatewayConfig,
   TransportConfig,
@@ -25,6 +36,7 @@ export {
 } from "./config.js";
 export type {
   AcceptInviteCommand,
+  ChatHistoryDirection,
   ChatHistoryMessage,
   ChatHistoryQuery,
   ChatHistorySearchResult,
@@ -35,6 +47,10 @@ export type {
   InboundReaction,
   InboundTypingSnapshot,
   MessageReference,
+  MessageRelation,
+  MessageRelationsResult,
+  PinnedMessageResolution,
+  PinnedMessageStatus,
   SendMessageCommand,
   SendReactionCommand,
   SetTypingCommand,
@@ -69,6 +85,7 @@ export type {
   TransportHealthStatus,
   TransportInvite,
   TransportInviteHandler,
+  TransportMember,
   TransportMessageHandler,
   TransportProvider,
   TransportReactionHandler,

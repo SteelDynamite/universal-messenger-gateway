@@ -148,6 +148,14 @@ runMatrixMautrixSmoke(
     await waitForInvite(accountB.provider, plainRoomId);
     await accountB.provider.acceptInvite(plainRoomId);
     await waitForChat(accountB.provider, plainRoomId);
+    await waitFor(async () => {
+      const memberIds = new Set(
+        (await accountB.provider.listMembers(plainRoomId)).map(
+          (member) => member.userId,
+        ),
+      );
+      return memberIds.has(accountAUserId) && memberIds.has(accountBUserId);
+    }, "timed out waiting for joined Matrix members");
 
     const plainMessage = `umg mautrix plaintext ${runId}`;
     const receivedPlainByB = waitForMessage(
@@ -156,13 +164,30 @@ runMatrixMautrixSmoke(
         message.chatId === plainRoomId && message.content === plainMessage,
     );
     await accountA.provider.sendMessage(plainRoomId, plainMessage);
-    expect(await receivedPlainByB).toMatchObject({
+    const receivedPlain = await receivedPlainByB;
+    expect(receivedPlain).toMatchObject({
       transport: "matrix",
       chatId: plainRoomId,
       content: plainMessage,
       isGroupChat: false,
       wasMentioned: false,
     });
+    const plainMessageId = requiredMessageId(receivedPlain);
+    await controlClient.sendStateEvent(
+      plainRoomId,
+      "m.room.pinned_events",
+      "",
+      { pinned: [plainMessageId] },
+    );
+    await waitFor(async () => {
+      const pinned = await accountB.provider.getPinnedMessages(plainRoomId);
+      return pinned.find(
+        (resolution) =>
+          resolution.messageId === plainMessageId &&
+          resolution.status === "available" &&
+          resolution.message?.content === plainMessage,
+      );
+    }, "timed out waiting for resolved Matrix pin");
     expect(
       await accountB.provider.searchHistory({
         transport: "matrix",
@@ -503,6 +528,20 @@ runMatrixMautrixSmoke(
       messageId: requiredMessageId(replyAtA),
       reaction,
     });
+    await waitFor(async () => {
+      const relations = await accountA.provider.getRelations(
+        encryptedRoomId,
+        requiredMessageId(replyAtA),
+      );
+      return (
+        relations.message?.replyTo?.messageId ===
+          requiredMessageId(encryptedAtB) &&
+        relations.items.some(
+          (item) =>
+            item.relationType === "m.annotation" && item.key === reaction,
+        )
+      );
+    }, "timed out waiting for Matrix relation context");
 
     const gatewayOutput = collectOutput();
     const gatewayManager = new TransportManager([accountA.provider]);

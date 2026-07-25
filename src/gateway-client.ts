@@ -1,11 +1,18 @@
 import { Writable } from "node:stream";
 import { runAdminCli } from "./admin.js";
+import {
+  type AgentOperationRequest,
+  type AgentOperationResult,
+  executeAgentOperation,
+} from "./agent-operations.js";
 import { loadGatewayConfig } from "./config.js";
 import type {
   ChatHistoryQuery,
   ChatHistorySearchResult,
   GatewayCommand,
   GatewayEvent,
+  MessageRelationsResult,
+  PinnedMessageResolution,
   TransportName,
 } from "./protocol.js";
 import {
@@ -16,6 +23,7 @@ import type {
   TransportChat,
   TransportHealth,
   TransportInvite,
+  TransportMember,
 } from "./transports/interface.js";
 import type {
   GatewayTransportErrorHandler,
@@ -35,7 +43,35 @@ export interface GatewayClient {
   listChats(transport: TransportName): Promise<TransportChat[]>;
   listInvites(transport: TransportName): Promise<TransportInvite[]>;
   health(transport: TransportName): Promise<TransportHealth[]>;
+  listMembers(
+    transport: TransportName,
+    chatId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<TransportMember[]>;
+  getPinnedMessages(
+    transport: TransportName,
+    chatId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<PinnedMessageResolution[]>;
+  getRelations(
+    transport: TransportName,
+    chatId: string,
+    messageId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<MessageRelationsResult>;
+  setTyping(
+    transport: TransportName,
+    chatId: string,
+    typing: boolean,
+    timeoutMs?: number,
+  ): Promise<void>;
   searchHistory(query: ChatHistoryQuery): Promise<ChatHistorySearchResult>;
+  executeAgentOperation(
+    request: AgentOperationRequest,
+  ): Promise<AgentOperationResult>;
   leaveChat(
     transport: TransportName,
     chatId: string,
@@ -115,6 +151,65 @@ export class ManagerGatewayClient implements GatewayClient {
   async health(transportName: TransportName): Promise<TransportHealth[]> {
     const transport = this.options.manager.getTransport(transportName);
     return transport.health?.() ?? [];
+  }
+
+  async listMembers(
+    transportName: TransportName,
+    chatId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<TransportMember[]> {
+    const transport = this.options.manager.getTransport(transportName);
+    if (!transport.listMembers) {
+      throw new Error(`Member lookup is not supported by ${transportName}`);
+    }
+    return transport.listMembers(chatId, limit, cursor);
+  }
+
+  async getPinnedMessages(
+    transportName: TransportName,
+    chatId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<PinnedMessageResolution[]> {
+    const transport = this.options.manager.getTransport(transportName);
+    if (!transport.getPinnedMessages) {
+      throw new Error(
+        `Pinned-message lookup is not supported by ${transportName}`,
+      );
+    }
+    return transport.getPinnedMessages(chatId, limit, cursor);
+  }
+
+  async getRelations(
+    transportName: TransportName,
+    chatId: string,
+    messageId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<MessageRelationsResult> {
+    const transport = this.options.manager.getTransport(transportName);
+    if (!transport.getRelations) {
+      throw new Error(`Relation lookup is not supported by ${transportName}`);
+    }
+    return transport.getRelations(chatId, messageId, limit, cursor);
+  }
+
+  async setTyping(
+    transportName: TransportName,
+    chatId: string,
+    typing: boolean,
+    timeoutMs?: number,
+  ): Promise<void> {
+    await this.options.manager
+      .getTransport(transportName)
+      .setTyping(chatId, typing, timeoutMs);
+  }
+
+  async executeAgentOperation(
+    request: AgentOperationRequest,
+  ): Promise<AgentOperationResult> {
+    return executeAgentOperation(this, request);
   }
 
   async searchHistory(

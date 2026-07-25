@@ -549,12 +549,95 @@ class Sidecar:
         client = require_client(self.client)
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
         return [
-            compact({"chatId": room_id, "displayName": await self.room_display_name(room_id)})
+            compact({
+                "chatId": room_id,
+                "displayName": await self.room_display_name(room_id),
+                "topic": await self.room_topic(room_id),
+            })
             for room_id in sorted(self.joined_rooms)
         ]
 
     async def list_invites(self) -> list[dict[str, Any]]:
         return list(self.pending_invites.values())
+
+    async def list_members(self, command: dict[str, Any]) -> list[dict[str, Any]]:
+        members = await require_client(self.client).get_joined_members(str(command["chatId"]))
+        if not isinstance(members, dict):
+            return []
+        offset = cursor_offset(command.get("cursor"))
+        limit = bounded_int(command.get("limit"), 25, 1, 100)
+        return [
+            compact(
+                {
+                    "userId": str(user_id),
+                    "displayName": member_display_name(member),
+                }
+            )
+            for user_id, member in sorted(members.items(), key=lambda item: str(item[0]))[offset:offset + limit]
+        ]
+
+    async def get_pinned_messages(self, command: dict[str, Any]) -> list[dict[str, Any]]:
+        client = require_client(self.client)
+        room_id = str(command["chatId"])
+        content = serialize(await client.get_state_event(room_id, EventType.ROOM_PINNED_EVENTS))
+        pinned = content.get("pinned")
+        if not isinstance(pinned, list):
+            return []
+        resolutions: list[dict[str, Any]] = []
+        offset = cursor_offset(command.get("cursor"))
+        limit = bounded_int(command.get("limit"), 25, 1, 100)
+        for event_id in pinned[offset:offset + limit]:
+            if not isinstance(event_id, str):
+                continue
+            try:
+                event = await client.get_event(room_id, event_id)
+            except Exception:
+                resolutions.append({"messageId": event_id, "status": "missing"})
+                continue
+            if is_redacted_event(event):
+                resolutions.append({"messageId": event_id, "status": "redacted"})
+                continue
+            message, skipped_decryption = await self.history_message(room_id, event, True)
+            if message:
+                resolutions.append({"messageId": event_id, "status": "available", "message": message})
+            elif skipped_decryption:
+                resolutions.append({"messageId": event_id, "status": "undecryptable"})
+            else:
+                resolutions.append({"messageId": event_id, "status": "unsupported"})
+        return resolutions
+
+    async def get_relations(self, command: dict[str, Any]) -> dict[str, Any]:
+        client = require_client(self.client)
+        room_id = str(command["chatId"])
+        event_id = str(command["messageId"])
+        limit = bounded_int(command.get("limit"), 25, 1, 100)
+        try:
+            event = await client.get_event(room_id, event_id)
+        except Exception:
+            return {"items": [], "nextCursor": None, "hasMore": False}
+        message, _ = await self.history_message(room_id, event, True)
+        try:
+            response = await client.api.request(
+                Method.GET,
+                MatrixPath.v1.rooms[room_id].relations[event_id],
+                query_params=compact({
+                    "limit": str(limit),
+                    "from": str(command["cursor"]) if command.get("cursor") else None,
+                }),
+                metrics_method="relations",
+            )
+        except Exception:
+            return compact({"message": message, "items": [], "nextCursor": None, "hasMore": False})
+        chunk = response.get("chunk") if isinstance(response, dict) else None
+        items = [relation_summary(item) for item in chunk if isinstance(item, dict)] if isinstance(chunk, list) else []
+        items = [item for item in items if item]
+        next_cursor = response.get("next_batch") if isinstance(response, dict) else None
+        return compact({
+            "message": message,
+            "items": items,
+            "nextCursor": next_cursor if isinstance(next_cursor, str) and next_cursor else None,
+            "hasMore": bool(next_cursor),
+        })
 
     async def health(self) -> list[dict[str, Any]]:
         if not self.client:
@@ -594,13 +677,20 @@ class Sidecar:
         message_id = str(command.get("messageId") or "").strip()
         from_timestamp = optional_int(command.get("fromTimestamp"))
         to_timestamp = optional_int(command.get("toTimestamp"))
-        if not query and not message_id and from_timestamp is None and to_timestamp is None:
-            return {"messages": [], "scannedChats": 0, "scannedMessages": 0}
+        direction = "forward" if command.get("direction") == "forward" else "backward"
+        cursor_timestamp = timestamp_cursor(command.get("cursor"))
+        if cursor_timestamp is not None:
+            if direction == "forward":
+                from_timestamp = max(from_timestamp or cursor_timestamp + 1, cursor_timestamp + 1)
+            else:
+                to_timestamp = min(to_timestamp or cursor_timestamp - 1, cursor_timestamp - 1)
+        if not query and not message_id and from_timestamp is None and to_timestamp is None and not command.get("chatIds"):
+            return {"messages": [], "nextCursor": None, "hasMore": False, "scannedChats": 0, "scannedMessages": 0}
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
         requested_rooms = command.get("chatIds")
         rooms = [str(room) for room in requested_rooms if isinstance(room, str)] if isinstance(requested_rooms, list) else sorted(self.joined_rooms)
         rooms = [room for room in rooms if room in self.joined_rooms]
-        limit = bounded_int(command.get("limit"), 10, 1, 25)
+        limit = bounded_int(command.get("limit"), 10, 1, 100)
         max_messages_per_chat = bounded_int(command.get("maxMessagesPerChat"), 100, 1, 1000)
         max_scanned_messages = 2000
         deadline = time.monotonic() + bounded_int(command.get("deadlineMs"), 45_000, 1000, 55_000) / 1000
@@ -720,14 +810,24 @@ class Sidecar:
                 if await scan_date_range(room_id):
                     continue
             token = token or await self.current_sync_token()
-            await scan_paginated(room_id, PaginationDirection.BACKWARD, token)
-        matches.sort(key=lambda item: (int(item.get("score") or 0), int(item.get("timestamp") or 0)), reverse=True)
+            await scan_paginated(
+                room_id,
+                PaginationDirection.FORWARD if direction == "forward" else PaginationDirection.BACKWARD,
+                token,
+            )
+        matches.sort(key=lambda item: int(item.get("timestamp") or 0), reverse=direction == "backward")
+        page = [without_score(message) for message in matches[:limit]]
+        partial = timed_out or scanned_messages >= max_scanned_messages
+        has_more = len(matches) > len(page) or partial
+        next_cursor = str(int(page[-1]["timestamp"])) if has_more and page else None
         return {
-            "messages": [without_score(message) for message in matches[:limit]],
+            "messages": page,
+            "nextCursor": next_cursor,
+            "hasMore": has_more,
             "scannedChats": len(rooms),
             "scannedMessages": scanned_messages,
             "skippedDecryption": skipped_decryptions,
-            "partial": timed_out or scanned_messages >= max_scanned_messages,
+            "partial": partial,
             **({"errors": list(dict.fromkeys(errors))[:10]} if errors else {}),
         }
 
@@ -1037,6 +1137,14 @@ class Sidecar:
             pass
         return None
 
+    async def room_topic(self, room_id: str) -> str | None:
+        try:
+            content = await require_client(self.client).get_state_event(room_id, EventType.ROOM_TOPIC)
+            topic = getattr(content, "topic", None) or serialize(content).get("topic")
+            return topic.strip() if isinstance(topic, str) and topic.strip() else None
+        except Exception:
+            return None
+
     async def refresh_room_member_count(self, room_id: str) -> int:
         try:
             count = len(await require_client(self.client).get_joined_members(room_id))
@@ -1053,6 +1161,9 @@ async def run() -> None:
         "disconnect": lambda command: sidecar.disconnect(),
         "list_chats": lambda command: sidecar.list_chats(),
         "list_invites": lambda command: sidecar.list_invites(),
+        "list_members": sidecar.list_members,
+        "get_pinned_messages": sidecar.get_pinned_messages,
+        "get_relations": sidecar.get_relations,
         "health": lambda command: sidecar.health(),
         "search_history": sidecar.search_history,
         "send_message": sidecar.send_message,
@@ -1269,6 +1380,28 @@ def message_references(room_id: str, content: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def relation_summary(event: dict[str, Any]) -> dict[str, Any] | None:
+    event_id = event.get("event_id")
+    event_type = event.get("type")
+    content = event.get("content") if isinstance(event.get("content"), dict) else {}
+    relates_to = content.get("m.relates_to") if isinstance(content.get("m.relates_to"), dict) else {}
+    relation_type = relates_to.get("rel_type")
+    if not isinstance(relation_type, str) and isinstance(relates_to.get("m.in_reply_to"), dict):
+        relation_type = "m.in_reply_to"
+    if not isinstance(event_id, str) or not isinstance(event_type, str) or not isinstance(relation_type, str):
+        return None
+    return compact(
+        {
+            "messageId": event_id,
+            "relationType": relation_type,
+            "eventType": event_type,
+            "timestamp": event.get("origin_server_ts") if isinstance(event.get("origin_server_ts"), int) else now_ms(),
+            "userId": event.get("sender") if isinstance(event.get("sender"), str) else None,
+            "key": relates_to.get("key") if isinstance(relates_to.get("key"), str) else None,
+        }
+    )
+
+
 def paginated_events(page: Any) -> list[Any]:
     events = getattr(page, "events", None)
     if isinstance(events, list):
@@ -1299,6 +1432,13 @@ def history_event_timestamp(event: Any) -> int:
     return timestamp if isinstance(timestamp, int) else now_ms()
 
 
+def is_redacted_event(event: Any) -> bool:
+    if str(getattr(event, "type", "")) == "m.room.redaction":
+        return True
+    unsigned = serialize(getattr(event, "unsigned", None))
+    return "redacted_because" in unsigned
+
+
 def search_terms(query: str) -> list[str]:
     return [term for term in re.findall(r"[\w@:.#$!/-]+", query.lower()) if len(term) > 1]
 
@@ -1321,6 +1461,17 @@ def bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     if not isinstance(value, int):
         return default
     return max(minimum, min(maximum, value))
+
+
+def cursor_offset(value: Any) -> int:
+    return int(value) if isinstance(value, str) and value.isdecimal() else 0
+
+
+def timestamp_cursor(value: Any) -> int | None:
+    try:
+        return int(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
 
 
 def matrix_permalink(room_id: str, event_id: str) -> str:
@@ -1352,6 +1503,12 @@ def media_attachment(content: dict[str, Any]) -> dict[str, Any] | None:
             "sizeBytes": info.get("size") if isinstance(info.get("size"), int) else None,
         }
     )
+
+
+def member_display_name(member: Any) -> str | None:
+    content = serialize(member)
+    value = content.get("displayname") or getattr(member, "displayname", None)
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def invite_display_name(event: StateEvent) -> str | None:

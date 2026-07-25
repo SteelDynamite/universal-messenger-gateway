@@ -19,6 +19,8 @@ export type MessageReference = {
   messageId: string;
 };
 
+export type ChatHistoryDirection = "backward" | "forward";
+
 export type ChatHistoryQuery = {
   transport: TransportName;
   query?: string;
@@ -26,6 +28,8 @@ export type ChatHistoryQuery = {
   messageId?: string;
   fromTimestamp?: number;
   toTimestamp?: number;
+  cursor?: string;
+  direction?: ChatHistoryDirection;
   limit?: number;
   maxMessagesPerChat?: number;
 };
@@ -46,11 +50,42 @@ export type ChatHistoryMessage = {
 
 export type ChatHistorySearchResult = {
   messages: ChatHistoryMessage[];
+  nextCursor: string | null;
+  hasMore: boolean;
   scannedChats: number;
   scannedMessages: number;
   skippedDecryption?: number;
   partial?: boolean;
   errors?: string[];
+};
+
+export type MessageRelation = {
+  messageId: string;
+  relationType: string;
+  eventType: string;
+  timestamp: number;
+  userId?: string;
+  key?: string;
+};
+
+export type MessageRelationsResult = {
+  message?: ChatHistoryMessage;
+  items: MessageRelation[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export type PinnedMessageStatus =
+  | "available"
+  | "missing"
+  | "redacted"
+  | "undecryptable"
+  | "unsupported";
+
+export type PinnedMessageResolution = {
+  messageId: string;
+  status: PinnedMessageStatus;
+  message?: ChatHistoryMessage;
 };
 
 export type MediaAttachmentKind = "image" | "file" | "audio" | "video";

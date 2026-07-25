@@ -13,11 +13,14 @@ import type {
   InboundTypingSnapshot,
   MediaAttachmentKind,
   MessageReference,
+  MessageRelationsResult,
+  PinnedMessageResolution,
 } from "../protocol.js";
 import type {
   TransportChat,
   TransportHealth,
   TransportInvite,
+  TransportMember,
   TransportProvider,
 } from "./interface.js";
 import { formatForMatrix } from "./matrix-utils.js";
@@ -219,6 +222,50 @@ export class MautrixMatrixProvider implements TransportProvider {
     return asArray(result).filter(isTransportHealth);
   }
 
+  async listMembers(
+    chatId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<TransportMember[]> {
+    return asArray(
+      await this.request("list_members", {
+        chatId,
+        ...(limit === undefined ? {} : { limit }),
+        ...(cursor === undefined ? {} : { cursor }),
+      }),
+    ).filter(isTransportMember);
+  }
+
+  async getPinnedMessages(
+    chatId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<PinnedMessageResolution[]> {
+    return asArray(
+      await this.request("get_pinned_messages", {
+        chatId,
+        ...(limit === undefined ? {} : { limit }),
+        ...(cursor === undefined ? {} : { cursor }),
+      }),
+    ).filter(isPinnedMessageResolution);
+  }
+
+  async getRelations(
+    chatId: string,
+    messageId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<MessageRelationsResult> {
+    return asMessageRelationsResult(
+      await this.request("get_relations", {
+        chatId,
+        messageId,
+        ...(limit === undefined ? {} : { limit }),
+        ...(cursor === undefined ? {} : { cursor }),
+      }),
+    );
+  }
+
   async searchHistory(
     query: ChatHistoryQuery,
   ): Promise<ChatHistorySearchResult> {
@@ -237,6 +284,10 @@ export class MautrixMatrixProvider implements TransportProvider {
           ...(query.toTimestamp === undefined
             ? {}
             : { toTimestamp: query.toTimestamp }),
+          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+          ...(query.direction === undefined
+            ? {}
+            : { direction: query.direction }),
           ...(query.limit === undefined ? {} : { limit: query.limit }),
           ...(query.maxMessagesPerChat === undefined
             ? {}
@@ -595,12 +646,24 @@ function isTransportInvite(value: unknown): value is TransportInvite {
   return isRecord(value) && typeof value.inviteId === "string";
 }
 
+function isTransportMember(value: unknown): value is TransportMember {
+  return isRecord(value) && typeof value.userId === "string";
+}
+
 function asChatHistorySearchResult(value: unknown): ChatHistorySearchResult {
   if (!isRecord(value)) {
-    return { messages: [], scannedChats: 0, scannedMessages: 0 };
+    return {
+      messages: [],
+      nextCursor: null,
+      hasMore: false,
+      scannedChats: 0,
+      scannedMessages: 0,
+    };
   }
   return {
     messages: asArray(value.messages).filter(isChatHistoryMessage),
+    nextCursor: typeof value.nextCursor === "string" ? value.nextCursor : null,
+    hasMore: value.hasMore === true,
     scannedChats:
       typeof value.scannedChats === "number" ? value.scannedChats : 0,
     scannedMessages:
@@ -627,6 +690,55 @@ function isChatHistoryMessage(
     typeof value.content === "string" &&
     typeof value.timestamp === "number"
   );
+}
+
+function asMessageRelationsResult(value: unknown): MessageRelationsResult {
+  if (!isRecord(value)) {
+    return { items: [], nextCursor: null, hasMore: false };
+  }
+  return {
+    ...(isChatHistoryMessage(value.message) ? { message: value.message } : {}),
+    items: asArray(value.items).filter(isMessageRelation),
+    nextCursor: typeof value.nextCursor === "string" ? value.nextCursor : null,
+    hasMore: value.hasMore === true,
+  };
+}
+
+function isMessageRelation(
+  value: unknown,
+): value is MessageRelationsResult["items"][number] {
+  return (
+    isRecord(value) &&
+    typeof value.messageId === "string" &&
+    typeof value.relationType === "string" &&
+    typeof value.eventType === "string" &&
+    typeof value.timestamp === "number" &&
+    (value.userId === undefined || typeof value.userId === "string") &&
+    (value.key === undefined || typeof value.key === "string")
+  );
+}
+
+function isPinnedMessageResolution(
+  value: unknown,
+): value is PinnedMessageResolution {
+  return (
+    isRecord(value) &&
+    typeof value.messageId === "string" &&
+    isPinnedMessageStatus(value.status) &&
+    (value.message === undefined || isChatHistoryMessage(value.message))
+  );
+}
+
+function isPinnedMessageStatus(
+  value: unknown,
+): value is PinnedMessageResolution["status"] {
+  return [
+    "available",
+    "missing",
+    "redacted",
+    "undecryptable",
+    "unsupported",
+  ].includes(String(value));
 }
 
 function isTransportHealth(value: unknown): value is TransportHealth {

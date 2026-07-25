@@ -6,6 +6,8 @@ import type {
   InboundTypingSnapshot,
   MediaAttachmentKind,
   MessageReference,
+  MessageRelationsResult,
+  PinnedMessageResolution,
   TransportName,
 } from "../protocol.js";
 
@@ -18,12 +20,20 @@ export type TransportErrorHandler = (error: unknown) => void;
 export type TransportChat = {
   chatId: string;
   displayName?: string;
+  topic?: string;
+  avatarUrl?: string;
+  type?: string;
 };
 
 export type TransportInvite = {
   inviteId: string;
   displayName?: string;
   inviter?: string;
+};
+
+export type TransportMember = {
+  userId: string;
+  displayName?: string;
 };
 
 export type TransportHealthStatus = "ready" | "degraded" | "disabled";
@@ -44,6 +54,22 @@ export interface TransportProvider {
   shutdownForProcessExit?(): void;
   listChats?(): Promise<TransportChat[]>;
   listInvites?(): Promise<TransportInvite[]>;
+  listMembers?(
+    chatId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<TransportMember[]>;
+  getPinnedMessages?(
+    chatId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<PinnedMessageResolution[]>;
+  getRelations?(
+    chatId: string,
+    messageId: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<MessageRelationsResult>;
   health?(): Promise<TransportHealth[]>;
   searchHistory?(query: ChatHistoryQuery): Promise<ChatHistorySearchResult>;
   sendMessage(

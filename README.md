@@ -44,6 +44,10 @@ Outbound Matrix attachments stream from disk, preserve image/file/audio/video ki
 State defaults to `./state`; override it with
 `UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR=/path`.
 
+## Embedded agent operations
+
+The SDK exports `AGENT_OPERATION_DESCRIPTORS` and `GatewayClient.executeAgentOperation()`. The descriptor registry generates bounded operation schemas and help for chats, members, source-of-truth messages, relations, media, pins, invites, non-admin writes, and diagnostics. Admin transport configuration is excluded.
+
 ## Documentation
 
 This repo is an Obsidian vault rooted at the repo root; docs live in [`docs/`](docs/).
