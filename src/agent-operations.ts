@@ -304,7 +304,7 @@ export const AGENT_OPERATION_DESCRIPTORS = [
     },
   },
   {
-    name: "getRelations",
+    name: "getMessageRelations",
     group: "messages",
     inputSchema: objectSchema(
       {
@@ -507,7 +507,7 @@ export const AGENT_OPERATION_DESCRIPTORS = [
     { inviteId: "!room:example.org" },
     true,
   ),
-  sendMessageDescriptor(),
+  sendMessageToChatDescriptor(),
   sendFileDescriptor(),
   sendReactionDescriptor(),
   setTypingDescriptor(),
@@ -660,9 +660,9 @@ function action<Name extends "acceptInvite" | "rejectInvite" | "leaveChat">(
   };
 }
 
-function sendMessageDescriptor(): AgentOperationDescriptor<"sendMessage"> {
+function sendMessageToChatDescriptor(): AgentOperationDescriptor<"sendMessageToChat"> {
   return {
-    name: "sendMessage",
+    name: "sendMessageToChat",
     group: "writes",
     inputSchema: objectSchema(
       {
@@ -676,7 +676,8 @@ function sendMessageDescriptor(): AgentOperationDescriptor<"sendMessage"> {
     ),
     defaults: {},
     help: {
-      summary: "Send a text message.",
+      summary:
+        "Send a text message to an explicit chat and optional reply/thread target.",
       examples: [
         { transport: "matrix", chatId: "!room:example.org", text: "Hello" },
       ],

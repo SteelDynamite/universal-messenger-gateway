@@ -169,7 +169,14 @@ test("generated help exposes only registered camelCase operations", async () => 
     AGENT_OPERATION_DESCRIPTORS.map(({ name }) => name),
   );
   expect(operations.map(({ name }) => name)).not.toEqual(
-    expect.arrayContaining(["configure", "connect", "disconnect", "status"]),
+    expect.arrayContaining([
+      "configure",
+      "connect",
+      "disconnect",
+      "status",
+      "getRelations",
+      "sendMessage",
+    ]),
   );
   expect(operations.every(({ name }) => /^[a-z][A-Za-z]*$/.test(name))).toBe(
     true,
@@ -278,7 +285,7 @@ test("agent history and metadata operations use bounded normalized transport dat
   });
   await expect(
     client.executeAgentOperation({
-      operation: "getRelations",
+      operation: "getMessageRelations",
       args: { transport: "matrix", chatId: "!room", messageId: "$event" },
     }),
   ).resolves.toMatchObject({
@@ -405,7 +412,7 @@ test("agent write operations use existing gateway commands", async () => {
     args: { transport: "matrix", inviteId: "!invite", reason: "no" },
   });
   await client.executeAgentOperation({
-    operation: "sendMessage",
+    operation: "sendMessageToChat",
     args: { transport: "matrix", chatId: "!room", text: "hello" },
   });
   await client.executeAgentOperation({
