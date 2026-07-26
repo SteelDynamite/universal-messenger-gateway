@@ -295,11 +295,13 @@ runMatrixMautrixSmoke(
 
     const outboundImageName = `umg-mautrix-outbound-${runId}.png`;
     const outboundImagePath = join(config.stateDir, outboundImageName);
+    const outboundImageCaption = `UMG mautrix image ${runId}`;
     await writeFile(outboundImagePath, imageBytes);
     const outboundImageReceived = waitForMessage(
       accountB,
       (message) =>
         message.chatId === plainRoomId &&
+        message.content === outboundImageCaption &&
         message.attachments?.[0]?.kind === "image" &&
         message.attachments[0].fileName === outboundImageName,
     );
@@ -312,10 +314,12 @@ runMatrixMautrixSmoke(
         undefined,
         undefined,
         "image",
+        outboundImageCaption,
       );
       expect((await outboundImageReceived).attachments?.[0]).toMatchObject({
         kind: "image",
         fileName: outboundImageName,
+        description: outboundImageCaption,
         mimeType: "image/png",
         sizeBytes: imageBytes.length,
       });

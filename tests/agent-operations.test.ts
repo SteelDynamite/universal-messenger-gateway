@@ -7,6 +7,7 @@ import {
 import type {
   ChatHistoryQuery,
   ChatHistorySearchResult,
+  MediaAttachmentKind,
   MessageReference,
   TransportProvider,
 } from "../src/index.js";
@@ -44,8 +45,13 @@ class AgentTransport implements TransportProvider {
     chatId: string,
     path: string,
     fileName?: string,
+    _mimeType?: string,
+    _replyTo?: MessageReference,
+    _threadTo?: MessageReference,
+    _kind?: MediaAttachmentKind,
+    caption?: string,
   ): Promise<void> {
-    this.commands.push({ type: "sendFile", chatId, path, fileName });
+    this.commands.push({ type: "sendFile", chatId, path, fileName, caption });
   }
   async sendReaction(
     chatId: string,
@@ -176,6 +182,7 @@ test("generated help exposes only registered camelCase operations", async () => 
       "status",
       "getRelations",
       "sendMessage",
+      "sendFile",
     ]),
   );
   expect(operations.every(({ name }) => /^[a-z][A-Za-z]*$/.test(name))).toBe(
@@ -416,12 +423,12 @@ test("agent write operations use existing gateway commands", async () => {
     args: { transport: "matrix", chatId: "!room", text: "hello" },
   });
   await client.executeAgentOperation({
-    operation: "sendFile",
+    operation: "sendFileToChat",
     args: {
       transport: "matrix",
       chatId: "!room",
       path: "/tmp/file",
-      message: "Attached report",
+      caption: "Attached report",
     },
   });
   await client.executeAgentOperation({
@@ -442,8 +449,13 @@ test("agent write operations use existing gateway commands", async () => {
     { type: "acceptInvite", inviteId: "!invite" },
     { type: "rejectInvite", inviteId: "!invite", reason: "no" },
     { type: "sendMessage", chatId: "!room", text: "hello" },
-    { type: "sendMessage", chatId: "!room", text: "Attached report" },
-    { type: "sendFile", chatId: "!room", path: "/tmp/file", fileName: "file" },
+    {
+      type: "sendFile",
+      chatId: "!room",
+      path: "/tmp/file",
+      fileName: "file",
+      caption: "Attached report",
+    },
     { type: "sendReaction", messageId: "$event", reaction: "👍" },
     { type: "leaveChat", chatId: "!room" },
   ]);

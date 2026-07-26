@@ -226,6 +226,15 @@ runMatrixSmoke(
     await accountB.provider.acceptInvite(roomId);
     await waitForChat(accountB.provider, roomId);
 
+    const encryptionSeed = `umg smoke encryption seed ${runId}`;
+    const seedReceivedByA = waitForMessage(
+      accountA,
+      (message) =>
+        message.chatId === roomId && message.content === encryptionSeed,
+    );
+    await accountB.provider.sendMessage(roomId, encryptionSeed);
+    await seedReceivedByA;
+
     const messageFromA = `umg smoke a->b ${runId}`;
     const receivedByB = waitForMessage(
       accountB,
@@ -495,11 +504,13 @@ runMatrixSmoke(
 
     const outboundFileName = `umg-smoke-export-${runId}.html`;
     const outboundFilePath = join(config.stateDir, outboundFileName);
+    const outboundFileCaption = `UMG smoke export ${runId}`;
     await writeFile(outboundFilePath, `<html>${runId}</html>`);
     const receivedFileByB = waitForMessage(
       accountB,
       (message) =>
         message.chatId === formattedRoomId &&
+        message.content === outboundFileCaption &&
         message.attachments?.[0]?.kind === "file" &&
         message.attachments[0].fileName === outboundFileName,
     );
@@ -510,11 +521,16 @@ runMatrixSmoke(
       outboundFilePath,
       outboundFileName,
       "text/html",
+      undefined,
+      undefined,
+      "file",
+      outboundFileCaption,
     );
     const fileAtB = await receivedFileByB;
     expect(fileAtB.attachments?.[0]).toMatchObject({
       kind: "file",
       fileName: outboundFileName,
+      description: outboundFileCaption,
       mimeType: "text/html",
     });
 

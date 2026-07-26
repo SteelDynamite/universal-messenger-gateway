@@ -31,6 +31,7 @@ from mautrix.types import (
     ImageInfo,
     InReplyTo,
     Membership,
+    MediaMessageEventContent,
     MessageEvent,
     MessageType,
     PaginationDirection,
@@ -926,22 +927,26 @@ class Sidecar:
         kind = str(command.get("kind") or "file")
         uri = await client.upload_media(file_chunks(path), mime_type=mime_type, filename=file_name, size=size)
         relates_to = make_relates_to(room_id, command.get("replyTo"), command.get("threadTo"))
-        if kind == "image":
-            await client.send_image(
-                room_id,
-                uri,
-                info=ImageInfo(mimetype=mime_type, size=size),
-                file_name=file_name,
-                relates_to=relates_to,
-            )
-            return
-        await client.send_file(
+        caption_value = command.get("caption")
+        caption = caption_value.strip() if isinstance(caption_value, str) and caption_value.strip() else None
+        await client.send_message(
             room_id,
-            uri,
-            info=BaseFileInfo(mimetype=mime_type, size=size),
-            file_name=file_name,
-            file_type={"audio": MessageType.AUDIO, "video": MessageType.VIDEO}.get(kind, MessageType.FILE),
-            relates_to=relates_to,
+            MediaMessageEventContent(
+                msgtype={
+                    "image": MessageType.IMAGE,
+                    "audio": MessageType.AUDIO,
+                    "video": MessageType.VIDEO,
+                }.get(kind, MessageType.FILE),
+                body=caption or file_name,
+                filename=file_name if caption else None,
+                url=uri,
+                info=(
+                    ImageInfo(mimetype=mime_type, size=size)
+                    if kind == "image"
+                    else BaseFileInfo(mimetype=mime_type, size=size)
+                ),
+                relates_to=relates_to,
+            ),
         )
 
     async def send_reaction(self, command: dict[str, Any]) -> None:
@@ -1497,8 +1502,18 @@ def media_attachment(content: dict[str, Any]) -> dict[str, Any] | None:
         {
             "mediaId": media_id,
             "kind": kind,
-            "fileName": content.get("body") if isinstance(content.get("body"), str) else None,
-            "description": content.get("body") if isinstance(content.get("body"), str) else None,
+            "fileName": (
+                content.get("filename")
+                if isinstance(content.get("filename"), str)
+                else content.get("body") if isinstance(content.get("body"), str) else None
+            ),
+            "description": (
+                content.get("body")
+                if isinstance(content.get("body"), str)
+                and isinstance(content.get("filename"), str)
+                and content.get("body") != content.get("filename")
+                else None
+            ),
             "mimeType": info.get("mimetype") if isinstance(info.get("mimetype"), str) else None,
             "sizeBytes": info.get("size") if isinstance(info.get("size"), int) else None,
         }

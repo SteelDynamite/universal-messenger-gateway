@@ -86,6 +86,7 @@ export interface TransportProvider {
     replyTo?: MessageReference,
     threadTo?: MessageReference,
     kind?: MediaAttachmentKind,
+    caption?: string,
   ): Promise<void>;
   sendReaction?(
     chatId: string,

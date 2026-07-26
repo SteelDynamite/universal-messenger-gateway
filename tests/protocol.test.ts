@@ -120,6 +120,7 @@ test("models outbound gateway commands", () => {
       fileName: "session.html",
       mimeType: "text/html",
       kind: "file",
+      caption: "Session export",
       replyTo: {
         transport: "matrix",
         chatId: "!room:example.org",
@@ -149,6 +150,18 @@ test("models outbound gateway commands", () => {
 
   expect(commands).toHaveLength(5);
   expect(commands.every(isGatewayCommand)).toBe(true);
+});
+
+test("rejects invalid file captions", () => {
+  expect(
+    isGatewayCommand({
+      type: "send_file",
+      transport: "matrix",
+      chatId: "!room:example.org",
+      path: "/tmp/file",
+      caption: 42,
+    }),
+  ).toBe(false);
 });
 
 test("rejects legacy and invalid typing commands", () => {

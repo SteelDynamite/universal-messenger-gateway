@@ -131,6 +131,7 @@ export class TransportManager {
           command.replyTo,
           command.threadTo,
           command.kind,
+          command.caption,
         );
         break;
       }

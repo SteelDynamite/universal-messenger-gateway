@@ -40,7 +40,7 @@ umg chat
 `umg setup matrix` writes `state/config.json` and local secret files such as
 `state/matrix-access-token.txt` with `600` permissions. Matrix E2EE state is stored
 in `state/mautrix-crypto.db`; bounded media downloads are stored under `state/media/`.
-Outbound Matrix attachments stream from disk, preserve image/file/audio/video kind, and reject files over 1 GiB.
+Outbound Matrix attachments stream from disk, preserve image/file/audio/video kind, support same-event captions with the original filename, and reject files over 1 GiB.
 State defaults to `./state`; override it with
 `UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR=/path`.
 

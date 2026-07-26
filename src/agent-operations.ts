@@ -508,7 +508,7 @@ export const AGENT_OPERATION_DESCRIPTORS = [
     true,
   ),
   sendMessageToChatDescriptor(),
-  sendFileDescriptor(),
+  sendFileToChatDescriptor(),
   sendReactionDescriptor(),
   setTypingDescriptor(),
   action(
@@ -696,9 +696,9 @@ function sendMessageToChatDescriptor(): AgentOperationDescriptor<"sendMessageToC
   };
 }
 
-function sendFileDescriptor(): AgentOperationDescriptor<"sendFile"> {
+function sendFileToChatDescriptor(): AgentOperationDescriptor<"sendFileToChat"> {
   return {
-    name: "sendFile",
+    name: "sendFileToChat",
     group: "writes",
     inputSchema: objectSchema(
       {
@@ -708,7 +708,7 @@ function sendFileDescriptor(): AgentOperationDescriptor<"sendFile"> {
         fileName: { type: "string" },
         mimeType: { type: "string" },
         kind: { type: "string", enum: ["image", "file", "audio", "video"] },
-        message: { type: "string", maximum: 4_000 },
+        caption: { type: "string", maximum: 4_000 },
         replyTo: referenceSchema,
         threadTo: referenceSchema,
       },
@@ -720,7 +720,8 @@ function sendFileDescriptor(): AgentOperationDescriptor<"sendFile"> {
       kind: "inferred from MIME type",
     },
     help: {
-      summary: "Send a local file; optionally send a short message first.",
+      summary:
+        "Send a local file to an explicit chat with an optional same-event caption.",
       examples: [
         {
           transport: "matrix",
@@ -733,7 +734,6 @@ function sendFileDescriptor(): AgentOperationDescriptor<"sendFile"> {
     async execute(client, args) {
       const transport = requiredTransport(args.transport, "transport");
       const chatId = requiredString(args.chatId, "chatId");
-      const message = optionalString(args.message);
       const path = requiredString(args.path, "path");
       const fileName =
         (optionalString(args.fileName) ?? basename(path)) || "file";
@@ -743,16 +743,7 @@ function sendFileDescriptor(): AgentOperationDescriptor<"sendFile"> {
         | "file"
         | "audio"
         | "video";
-      const relationArgs = references(args);
-      if (message) {
-        await client.send({
-          type: "send_message",
-          transport,
-          chatId,
-          text: message,
-          ...relationArgs,
-        });
-      }
+      const caption = optionalString(args.caption);
       await client.send({
         type: "send_file",
         transport,
@@ -761,7 +752,8 @@ function sendFileDescriptor(): AgentOperationDescriptor<"sendFile"> {
         fileName,
         mimeType,
         kind,
-        ...relationArgs,
+        ...(caption ? { caption } : {}),
+        ...references(args),
       });
       return { ok: true };
     },

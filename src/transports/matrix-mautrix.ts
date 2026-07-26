@@ -325,6 +325,7 @@ export class MautrixMatrixProvider implements TransportProvider {
     replyTo?: MessageReference,
     threadTo?: MessageReference,
     kind?: MediaAttachmentKind,
+    caption?: string,
   ): Promise<void> {
     await this.request("send_file", {
       chatId,
@@ -332,6 +333,7 @@ export class MautrixMatrixProvider implements TransportProvider {
       ...(fileName ? { fileName } : {}),
       ...(mimeType ? { mimeType } : {}),
       ...(kind ? { kind } : {}),
+      ...(caption ? { caption } : {}),
       ...(replyTo ? { replyTo } : {}),
       ...(threadTo ? { threadTo } : {}),
     });

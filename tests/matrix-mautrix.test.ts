@@ -142,6 +142,7 @@ test("default Matrix factory can select the mautrix sidecar implementation", asy
     },
     undefined,
     "file",
+    "Session export",
   );
   await provider.sendReaction("!room", "$event", "👍");
   await provider.setTyping("!room", true, 10_000);
@@ -232,6 +233,7 @@ test("default Matrix factory can select the mautrix sidecar implementation", asy
       fileName: "session.html",
       mimeType: "text/html",
       kind: "file",
+      caption: "Session export",
       replyTo: { transport: "matrix", chatId: "!room", messageId: "$reply" },
     }),
   );
