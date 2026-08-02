@@ -192,6 +192,36 @@ runMatrixMautrixSmoke(
       isGroupChat: false,
       wasMentioned: false,
     });
+    const namedChannelId = await controlClient.createRoom({
+      preset: "private_chat",
+      visibility: "private",
+      invite: [accountBUserId],
+      name: `umg mautrix channel ${runId}`,
+      topic: "Two-member channel classification",
+    });
+    roomsToLeave.push(namedChannelId);
+    await waitForChat(accountA.provider, namedChannelId);
+    await waitForInvite(accountB.provider, namedChannelId);
+    await accountB.provider.acceptInvite(namedChannelId);
+    await waitForChat(accountB.provider, namedChannelId);
+    expect(await accountB.provider.getChat(namedChannelId)).toMatchObject({
+      chatId: namedChannelId,
+      type: "group",
+      topic: "Two-member channel classification",
+    });
+    const channelMessage = `umg mautrix named channel ${runId}`;
+    const receivedChannelByB = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === namedChannelId && message.content === channelMessage,
+    );
+    await accountA.provider.sendMessage(namedChannelId, channelMessage);
+    expect(await receivedChannelByB).toMatchObject({
+      chatId: namedChannelId,
+      isGroupChat: true,
+      wasMentioned: false,
+    });
+
     const plainMessageId = requiredMessageId(receivedPlain);
     await controlClient.sendStateEvent(
       plainRoomId,

@@ -204,6 +204,9 @@ runMatrixSmoke(
       ],
     });
     roomsToLeave.push(roomId);
+    await controlClient.setAccountData(accountAUserId, "m.direct", {
+      [accountBUserId]: [roomId],
+    });
 
     await waitForChat(accountA.provider, roomId);
     const inviteEventForB = await waitFor(() =>

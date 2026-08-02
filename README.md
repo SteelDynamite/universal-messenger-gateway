@@ -41,6 +41,7 @@ umg chat
 `state/matrix-access-token.txt` with `600` permissions. Matrix E2EE state is stored
 in `state/mautrix-crypto.db`; bounded media downloads are stored under `state/media/`.
 Outbound Matrix attachments stream from disk, preserve image/file/audio/video kind, support same-event captions with the original filename, and reject files over 1 GiB.
+Matrix chat type follows `m.direct`; unnamed two-member rooms remain a compatibility fallback, while named rooms and channels are group chats.
 State defaults to `./state`; override it with
 `UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR=/path`.
 

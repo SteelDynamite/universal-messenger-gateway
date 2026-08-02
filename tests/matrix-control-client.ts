@@ -39,6 +39,18 @@ export class MatrixControlClient {
     return response.room_id;
   }
 
+  async setAccountData(
+    userId: string,
+    type: string,
+    content: unknown,
+  ): Promise<void> {
+    await this.request(
+      "PUT",
+      `/user/${encodeURIComponent(userId)}/account_data/${encodeURIComponent(type)}`,
+      content,
+    );
+  }
+
   async sendMessage(roomId: string, content: unknown): Promise<string> {
     const response = await this.request<{ event_id: string }>(
       "PUT",

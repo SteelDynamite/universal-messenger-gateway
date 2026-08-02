@@ -162,7 +162,10 @@ class Sidecar:
         self.bot_user_id = ""
         self.joined_rooms: set[str] = set()
         self.pending_invites: dict[str, dict[str, Any]] = {}
+        self.pending_direct_invites: dict[str, str] = {}
+        self.direct_room_ids: set[str] = set()
         self.room_member_count: dict[str, int] = {}
+        self.room_chat_type: dict[str, str] = {}
         self.connected_at = 0
         self.state_dir: Path | None = None
         self.media_download_max_bytes = DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES
@@ -258,9 +261,14 @@ class Sidecar:
         client.add_event_handler(EventType.REACTION, self.handle_reaction)
         client.add_event_handler(EventType.TYPING, self.handle_typing)
         client.add_event_handler(EventType.ROOM_MEMBER, self.handle_member)
+        client.add_event_handler(EventType.DIRECT, self.handle_direct)
+        client.add_event_handler(EventType.ROOM_NAME, self.handle_room_metadata)
+        client.add_event_handler(EventType.ROOM_CANONICAL_ALIAS, self.handle_room_metadata)
+        client.add_event_handler(EventType.ROOM_TOPIC, self.handle_room_metadata)
         self.register_debug_handlers(client)
         self.client = client
         self.connected_at = now_ms()
+        await self.refresh_direct_room_ids()
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
         for room_id in list(self.joined_rooms):
             await self.refresh_room_member_count(room_id)
@@ -286,7 +294,10 @@ class Sidecar:
         self.state_store = None
         self.joined_rooms.clear()
         self.pending_invites.clear()
+        self.pending_direct_invites.clear()
+        self.direct_room_ids.clear()
         self.room_member_count.clear()
+        self.room_chat_type.clear()
         self.state_dir = None
         self.media_download_max_bytes = DEFAULT_MEDIA_DOWNLOAD_MAX_BYTES
         self.image_media_download_max_bytes = DEFAULT_IMAGE_MEDIA_DOWNLOAD_MAX_BYTES
@@ -548,6 +559,7 @@ class Sidecar:
 
     async def list_chats(self) -> list[dict[str, Any]]:
         client = require_client(self.client)
+        await self.refresh_direct_room_ids()
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
         return [await self.chat_metadata(room_id) for room_id in sorted(self.joined_rooms)]
 
@@ -555,16 +567,23 @@ class Sidecar:
         room_id = str(command["chatId"])
         if room_id not in self.joined_rooms:
             self.joined_rooms = set(str(room) for room in await require_client(self.client).get_joined_rooms())
-        return await self.chat_metadata(room_id) if room_id in self.joined_rooms else None
+        if room_id not in self.joined_rooms:
+            return None
+        await self.refresh_direct_room_ids()
+        return await self.chat_metadata(room_id)
 
     async def chat_metadata(self, room_id: str) -> dict[str, Any]:
         member_count = await self.refresh_room_member_count(room_id)
+        display_name = await self.room_display_name(room_id)
+        topic = await self.room_topic(room_id)
+        chat_type = classify_matrix_chat(room_id, self.direct_room_ids, member_count, display_name, topic)
+        self.room_chat_type[room_id] = chat_type
         return compact(
             {
                 "chatId": room_id,
-                "displayName": await self.room_display_name(room_id),
-                "type": "direct" if member_count <= 2 else "group",
-                "topic": await self.room_topic(room_id),
+                "displayName": display_name,
+                "type": chat_type,
+                "topic": topic,
                 "avatarUrl": await self.room_avatar_url(room_id),
             }
         )
@@ -973,18 +992,25 @@ class Sidecar:
         room_id = str(command["chatId"])
         await require_client(self.client).leave_room(room_id, command.get("reason"))
         self.joined_rooms.discard(room_id)
+        self.direct_room_ids.discard(room_id)
         self.room_member_count.pop(room_id, None)
+        self.room_chat_type.pop(room_id, None)
 
     async def accept_invite(self, command: dict[str, Any]) -> None:
         room_id = str(command["inviteId"])
+        direct_user_id = self.pending_direct_invites.get(room_id)
         joined = str(await require_client(self.client).join_room_by_id(room_id))
         self.pending_invites.pop(room_id, None)
+        self.pending_direct_invites.pop(room_id, None)
         self.joined_rooms.add(joined)
+        if direct_user_id:
+            await self.mark_room_direct(joined, direct_user_id)
 
     async def reject_invite(self, command: dict[str, Any]) -> None:
         room_id = str(command["inviteId"])
         await require_client(self.client).leave_room(room_id, command.get("reason"), raise_not_in_room=False)
         self.pending_invites.pop(room_id, None)
+        self.pending_direct_invites.pop(room_id, None)
 
     async def handle_message(self, event: MessageEvent) -> None:
         room_id = str(event.room_id)
@@ -1000,7 +1026,13 @@ class Sidecar:
         member_count = self.room_member_count.get(room_id)
         if member_count is None:
             member_count = await self.refresh_room_member_count(room_id)
-        is_group_chat = member_count > 2
+        chat_type = self.room_chat_type.get(room_id)
+        if chat_type is None:
+            display_name = await self.room_display_name(room_id)
+            topic = await self.room_topic(room_id)
+            chat_type = classify_matrix_chat(room_id, self.direct_room_ids, member_count, display_name, topic)
+            self.room_chat_type[room_id] = chat_type
+        is_group_chat = chat_type == "group"
         was_mentioned = is_group_chat and was_bot_mentioned(body, self.bot_user_id)
         content = strip_bot_mention(body, self.bot_user_id) if was_mentioned else body
         if not content and not attachment:
@@ -1123,17 +1155,59 @@ class Sidecar:
                 }
             )
             self.pending_invites[room_id] = invite
+            if serialize(content).get("is_direct") is True and event.sender:
+                self.pending_direct_invites[room_id] = str(event.sender)
+            else:
+                self.pending_direct_invites.pop(room_id, None)
             await emit({"type": "invite", "invite": invite})
         elif state_key == self.bot_user_id and membership == Membership.JOIN:
             self.pending_invites.pop(room_id, None)
             self.joined_rooms.add(room_id)
+            self.room_chat_type.pop(room_id, None)
             await self.refresh_room_member_count(room_id)
         elif state_key == self.bot_user_id and membership in (Membership.LEAVE, Membership.BAN):
             self.pending_invites.pop(room_id, None)
+            self.pending_direct_invites.pop(room_id, None)
             self.joined_rooms.discard(room_id)
+            self.direct_room_ids.discard(room_id)
             self.room_member_count.pop(room_id, None)
+            self.room_chat_type.pop(room_id, None)
         elif room_id in self.joined_rooms:
+            self.room_chat_type.pop(room_id, None)
             await self.refresh_room_member_count(room_id)
+
+    async def handle_direct(self, event: Any) -> None:
+        self.direct_room_ids = direct_room_ids(serialize(event.content))
+        self.room_chat_type.clear()
+
+    async def handle_room_metadata(self, event: StateEvent) -> None:
+        self.room_chat_type.pop(str(event.room_id), None)
+
+    async def refresh_direct_room_ids(self) -> None:
+        try:
+            content = await require_client(self.client).get_account_data(EventType.DIRECT)
+        except Exception:
+            return
+        self.direct_room_ids = direct_room_ids(serialize(content))
+        self.room_chat_type.clear()
+
+    async def mark_room_direct(self, room_id: str, user_id: str) -> None:
+        client = require_client(self.client)
+        try:
+            content = serialize(await client.get_account_data(EventType.DIRECT))
+        except Exception:
+            content = {}
+        rooms = content.get(user_id)
+        user_rooms = [str(value) for value in rooms] if isinstance(rooms, list) else []
+        if room_id not in user_rooms:
+            user_rooms.append(room_id)
+            content[user_id] = user_rooms
+            try:
+                await client.set_account_data(EventType.DIRECT, content)
+            except Exception:
+                pass
+        self.direct_room_ids.add(room_id)
+        self.room_chat_type[room_id] = "direct"
 
     async def room_display_name(self, room_id: str) -> str | None:
         client = require_client(self.client)
@@ -1497,6 +1571,29 @@ def timestamp_cursor(value: Any) -> int | None:
         return int(value) if isinstance(value, str) else None
     except ValueError:
         return None
+
+
+def direct_room_ids(content: dict[str, Any]) -> set[str]:
+    return {
+        str(room_id)
+        for rooms in content.values()
+        if isinstance(rooms, list)
+        for room_id in rooms
+        if isinstance(room_id, str)
+    }
+
+
+def classify_matrix_chat(
+    room_id: str,
+    explicit_direct_rooms: set[str],
+    member_count: int,
+    display_name: str | None,
+    topic: str | None,
+) -> str:
+    if room_id in explicit_direct_rooms:
+        return "direct"
+    # Preserve legacy unnamed two-person DMs without treating named channels as DMs.
+    return "direct" if member_count <= 2 and not display_name and not topic else "group"
 
 
 def matrix_permalink(room_id: str, event_id: str) -> str:
