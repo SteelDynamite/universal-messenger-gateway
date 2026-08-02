@@ -22,6 +22,7 @@ class AgentTransport implements TransportProvider {
     typing: boolean;
     timeoutMs?: number;
   }> = [];
+  readonly chatRequests: string[] = [];
   readonly memberRequests: Array<{ limit?: number; cursor?: string }> = [];
   readonly pinnedRequests: Array<{ limit?: number; cursor?: string }> = [];
 
@@ -78,6 +79,10 @@ class AgentTransport implements TransportProvider {
   }
   async listChats() {
     return [{ chatId: "!room", displayName: "Room" }];
+  }
+  async getChat(chatId: string) {
+    this.chatRequests.push(chatId);
+    return chatId === "!room" ? { chatId, displayName: "Room" } : undefined;
   }
   async listInvites() {
     return [{ inviteId: "!invite", displayName: "Invite" }];
@@ -329,6 +334,7 @@ test("agent history and metadata operations use bounded normalized transport dat
     },
     { transport: "matrix", query: "all", direction: "backward", limit: 10 },
   ]);
+  expect(transport.chatRequests).toEqual(["!room"]);
   expect(transport.memberRequests).toEqual([{ limit: 26, cursor: undefined }]);
   expect(transport.pinnedRequests).toEqual([{ limit: 26, cursor: undefined }]);
 });

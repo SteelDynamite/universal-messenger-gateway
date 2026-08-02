@@ -41,6 +41,10 @@ export interface GatewayClient {
   onError(handler: GatewayTransportErrorHandler): () => void;
   configuredTransports(): ReadonlySet<TransportName>;
   listChats(transport: TransportName): Promise<TransportChat[]>;
+  getChat(
+    transport: TransportName,
+    chatId: string,
+  ): Promise<TransportChat | undefined>;
   listInvites(transport: TransportName): Promise<TransportInvite[]>;
   health(transport: TransportName): Promise<TransportHealth[]>;
   listMembers(
@@ -141,6 +145,17 @@ export class ManagerGatewayClient implements GatewayClient {
   async listChats(transportName: TransportName): Promise<TransportChat[]> {
     const transport = this.options.manager.getTransport(transportName);
     return transport.listChats?.() ?? [];
+  }
+
+  async getChat(
+    transportName: TransportName,
+    chatId: string,
+  ): Promise<TransportChat | undefined> {
+    const transport = this.options.manager.getTransport(transportName);
+    if (transport.getChat) return transport.getChat(chatId);
+    return (await transport.listChats?.())?.find(
+      (chat) => chat.chatId === chatId,
+    );
   }
 
   async listInvites(transportName: TransportName): Promise<TransportInvite[]> {

@@ -549,14 +549,25 @@ class Sidecar:
     async def list_chats(self) -> list[dict[str, Any]]:
         client = require_client(self.client)
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
-        return [
-            compact({
+        return [await self.chat_metadata(room_id) for room_id in sorted(self.joined_rooms)]
+
+    async def get_chat(self, command: dict[str, Any]) -> dict[str, Any] | None:
+        room_id = str(command["chatId"])
+        if room_id not in self.joined_rooms:
+            self.joined_rooms = set(str(room) for room in await require_client(self.client).get_joined_rooms())
+        return await self.chat_metadata(room_id) if room_id in self.joined_rooms else None
+
+    async def chat_metadata(self, room_id: str) -> dict[str, Any]:
+        member_count = await self.refresh_room_member_count(room_id)
+        return compact(
+            {
                 "chatId": room_id,
                 "displayName": await self.room_display_name(room_id),
+                "type": "direct" if member_count <= 2 else "group",
                 "topic": await self.room_topic(room_id),
-            })
-            for room_id in sorted(self.joined_rooms)
-        ]
+                "avatarUrl": await self.room_avatar_url(room_id),
+            }
+        )
 
     async def list_invites(self) -> list[dict[str, Any]]:
         return list(self.pending_invites.values())
@@ -1150,6 +1161,14 @@ class Sidecar:
         except Exception:
             return None
 
+    async def room_avatar_url(self, room_id: str) -> str | None:
+        try:
+            content = await require_client(self.client).get_state_event(room_id, EventType.ROOM_AVATAR)
+            url = getattr(content, "url", None) or serialize(content).get("url")
+            return url.strip() if isinstance(url, str) and url.strip() else None
+        except Exception:
+            return None
+
     async def refresh_room_member_count(self, room_id: str) -> int:
         try:
             count = len(await require_client(self.client).get_joined_members(room_id))
@@ -1165,6 +1184,7 @@ async def run() -> None:
         "connect": sidecar.connect,
         "disconnect": lambda command: sidecar.disconnect(),
         "list_chats": lambda command: sidecar.list_chats(),
+        "get_chat": sidecar.get_chat,
         "list_invites": lambda command: sidecar.list_invites(),
         "list_members": sidecar.list_members,
         "get_pinned_messages": sidecar.get_pinned_messages,

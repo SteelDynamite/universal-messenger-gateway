@@ -46,7 +46,7 @@ State defaults to `./state`; override it with
 
 ## Embedded agent operations
 
-The SDK exports `AGENT_OPERATION_DESCRIPTORS` and `GatewayClient.executeAgentOperation()`. The descriptor registry generates bounded operation schemas and help for chats, members, source-of-truth messages, relations, media, pins, invites, non-admin writes, and diagnostics. Admin transport configuration is excluded.
+The SDK exports `AGENT_OPERATION_DESCRIPTORS` and `GatewayClient.executeAgentOperation()`. The descriptor registry generates bounded operation schemas and help for chats, members, source-of-truth messages, relations, media, pins, invites, non-admin writes, and diagnostics. Direct current-chat lookup returns normalized display name, type, topic, and avatar URL when available; Matrix pin lookup resolves source messages and unavailable statuses. Admin transport configuration is excluded.
 
 ## Documentation
 

@@ -53,6 +53,7 @@ export interface TransportProvider {
   disconnect(): Promise<void>;
   shutdownForProcessExit?(): void;
   listChats?(): Promise<TransportChat[]>;
+  getChat?(chatId: string): Promise<TransportChat | undefined>;
   listInvites?(): Promise<TransportInvite[]>;
   listMembers?(
     chatId: string,

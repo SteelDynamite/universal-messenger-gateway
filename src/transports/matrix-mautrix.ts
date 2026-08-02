@@ -211,6 +211,11 @@ export class MautrixMatrixProvider implements TransportProvider {
     );
   }
 
+  async getChat(chatId: string): Promise<TransportChat | undefined> {
+    const result = await this.request("get_chat", { chatId });
+    return isTransportChat(result) ? result : undefined;
+  }
+
   async listInvites(): Promise<TransportInvite[]> {
     return asArray(await this.request("list_invites", {})).filter(
       isTransportInvite,
@@ -641,7 +646,13 @@ function isInboundTypingSnapshot(
 }
 
 function isTransportChat(value: unknown): value is TransportChat {
-  return isRecord(value) && typeof value.chatId === "string";
+  return (
+    isRecord(value) &&
+    typeof value.chatId === "string" &&
+    ["displayName", "topic", "avatarUrl", "type"].every(
+      (field) => value[field] === undefined || typeof value[field] === "string",
+    )
+  );
 }
 
 function isTransportInvite(value: unknown): value is TransportInvite {

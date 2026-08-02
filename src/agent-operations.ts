@@ -179,9 +179,7 @@ export const AGENT_OPERATION_DESCRIPTORS = [
     async execute(client, args) {
       const transport = requiredTransport(args.transport, "transport");
       const chatId = requiredString(args.chatId, "chatId");
-      const chat = (await client.listChats(transport)).find(
-        (candidate) => candidate.chatId === chatId,
-      );
+      const chat = await client.getChat(transport, chatId);
       if (!chat) {
         throw new Error(`Chat not found on ${transport}: ${chatId}`);
       }

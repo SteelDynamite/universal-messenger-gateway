@@ -156,6 +156,26 @@ runMatrixMautrixSmoke(
       );
       return memberIds.has(accountAUserId) && memberIds.has(accountBUserId);
     }, "timed out waiting for joined Matrix members");
+    const plainAvatarUrl = await controlClient.uploadMedia(
+      Buffer.from("avatar"),
+      "image/png",
+      `umg-mautrix-avatar-${runId}.png`,
+    );
+    await controlClient.sendStateEvent(plainRoomId, "m.room.avatar", "", {
+      url: plainAvatarUrl,
+    });
+    expect(
+      await waitFor(async () => {
+        const chat = await accountB.provider.getChat(plainRoomId);
+        return chat?.type === "direct" && chat.avatarUrl === plainAvatarUrl
+          ? chat
+          : undefined;
+      }, "timed out waiting for Matrix direct-chat metadata"),
+    ).toMatchObject({
+      chatId: plainRoomId,
+      type: "direct",
+      avatarUrl: plainAvatarUrl,
+    });
 
     const plainMessage = `umg mautrix plaintext ${runId}`;
     const receivedPlainByB = waitForMessage(
@@ -639,6 +659,12 @@ runMatrixMautrixSmoke(
     await accountC.provider.acceptInvite(groupRoomId);
     await waitForChat(accountB.provider, groupRoomId);
     await waitForChat(accountC.provider, groupRoomId);
+    expect(
+      await waitFor(async () => {
+        const chat = await accountA.provider.getChat(groupRoomId);
+        return chat?.type === "group" ? chat : undefined;
+      }, "timed out waiting for Matrix group-chat metadata"),
+    ).toMatchObject({ chatId: groupRoomId, type: "group" });
 
     const groupMessage = `${accountAUserId} umg mautrix group mention ${runId}`;
     const groupMessageContent = `umg mautrix group mention ${runId}`;
