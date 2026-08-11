@@ -1033,7 +1033,7 @@ class Sidecar:
             chat_type = classify_matrix_chat(room_id, self.direct_room_ids, member_count, display_name, topic)
             self.room_chat_type[room_id] = chat_type
         is_group_chat = chat_type == "group"
-        was_mentioned = is_group_chat and was_bot_mentioned(body, self.bot_user_id)
+        was_mentioned = is_group_chat and was_bot_mentioned(body, self.bot_user_id, raw_content)
         content = strip_bot_mention(body, self.bot_user_id) if was_mentioned else body
         if not content and not attachment:
             return
@@ -1697,7 +1697,11 @@ def extract_username(user_id: str) -> str:
     return re.sub(r":.*$", "", user_id.removeprefix("@"))
 
 
-def was_bot_mentioned(text: str, bot_user_id: str) -> bool:
+def was_bot_mentioned(text: str, bot_user_id: str, content: dict[str, Any] | None = None) -> bool:
+    mentions = content.get("m.mentions") if isinstance(content, dict) else None
+    user_ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
+    if isinstance(user_ids, list) and bot_user_id in user_ids:
+        return True
     localpart = extract_username(bot_user_id)
     return bot_user_id in text or bool(localpart and re.search(rf"@{re.escape(localpart)}\b", text, re.I))
 

@@ -221,6 +221,25 @@ runMatrixMautrixSmoke(
       isGroupChat: true,
       wasMentioned: false,
     });
+    const structuredMention = `Smoke Bot: structured mention ${runId}`;
+    const receivedStructuredMentionByB = waitForMessage(
+      accountB,
+      (message) =>
+        message.chatId === namedChannelId &&
+        message.content === structuredMention,
+    );
+    await controlClient.sendMessage(namedChannelId, {
+      msgtype: "m.text",
+      body: structuredMention,
+      format: "org.matrix.custom.html",
+      formatted_body: `<a href="https://matrix.to/#/${accountBUserId}">Smoke Bot</a>: structured mention ${runId}`,
+      "m.mentions": { user_ids: [accountBUserId] },
+    });
+    expect(await receivedStructuredMentionByB).toMatchObject({
+      chatId: namedChannelId,
+      isGroupChat: true,
+      wasMentioned: true,
+    });
 
     const plainMessageId = requiredMessageId(receivedPlain);
     await controlClient.sendStateEvent(
