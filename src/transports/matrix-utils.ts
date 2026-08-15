@@ -3,6 +3,8 @@
  * Extracted for testability; no SDK or network dependencies.
  */
 
+import { Marked, Renderer, TextRenderer } from "marked";
+import sanitizeHtml from "sanitize-html";
 import type { MediaAttachment } from "../protocol.js";
 
 export type MatrixRoomEvent = {
@@ -34,48 +36,115 @@ export function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
+const MATRIX_HTML_TAGS = [
+  "del",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "blockquote",
+  "p",
+  "a",
+  "ul",
+  "ol",
+  "sup",
+  "sub",
+  "li",
+  "b",
+  "i",
+  "u",
+  "strong",
+  "em",
+  "s",
+  "code",
+  "hr",
+  "br",
+  "div",
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "th",
+  "td",
+  "caption",
+  "pre",
+  "span",
+  "img",
+  "details",
+  "summary",
+];
+
+const renderer = new Renderer();
+renderer.checkbox = ({ checked }) => (checked ? "[x] " : "[ ] ");
+renderer.link = function ({ href, tokens }) {
+  const label = this.parser.parseInline(tokens);
+  const safeHref = safeMatrixHref(href);
+  return safeHref
+    ? `<a href="${escapeHtml(safeHref)}">${label}</a>`
+    : `${label} (${escapeHtml(href)})`;
+};
+renderer.image = function ({ href, tokens }) {
+  const alt = escapeHtml(
+    this.parser.parseInline(tokens, new TextRenderer()).trim() || href,
+  );
+  const safeHref = safeMatrixHref(href);
+  return safeHref
+    ? `<a href="${escapeHtml(safeHref)}">${alt}</a>`
+    : `${alt} (${escapeHtml(href)})`;
+};
+
+const markdown = new Marked({ gfm: true, breaks: true, renderer });
+
 export function formatForMatrix(text: string): MatrixFormattedMessage {
-  const hasMarkdown = /[*_`#[]/.test(text);
+  const html = markdown.parse(text, { async: false });
+  const formattedBody = sanitizeHtml(html, {
+    allowedTags: MATRIX_HTML_TAGS,
+    allowedAttributes: {
+      a: ["href", "target"],
+      img: ["width", "height", "alt", "title", "src"],
+      ol: ["start"],
+      code: ["class"],
+      span: [
+        "data-mx-bg-color",
+        "data-mx-color",
+        "data-mx-spoiler",
+        "data-mx-maths",
+      ],
+      div: ["data-mx-maths"],
+    },
+    allowedSchemes: ["https", "http", "ftp", "mailto", "magnet"],
+    allowedSchemesByTag: { img: ["mxc"] },
+    allowProtocolRelative: false,
+    nestingLimit: 100,
+    transformTags: {
+      a: (tagName, attribs) => {
+        const href = safeMatrixHref(attribs.href);
+        return {
+          tagName,
+          attribs: href
+            ? {
+                href,
+                ...(attribs.target ? { target: attribs.target } : {}),
+              }
+            : {},
+        };
+      },
+      code: (tagName, attribs) => ({
+        tagName,
+        attribs:
+          typeof attribs.class === "string" &&
+          /^language-[\w-]+$/.test(attribs.class)
+            ? { class: attribs.class }
+            : {},
+      }),
+    },
+    exclusiveFilter: ({ tag, attribs }) =>
+      tag === "img" && !attribs.src?.startsWith("mxc://"),
+  }).trim();
 
-  if (!hasMarkdown) {
-    return { body: text };
-  }
-
-  let html = text;
-  const tokens: string[] = [];
-  const token = (value: string): string => {
-    tokens.push(value);
-    return `\uE000${tokens.length - 1}\uE000`;
-  };
-
-  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-    const safeLang = typeof lang === "string" && /^\w+$/.test(lang) ? lang : "";
-    return token(
-      `<pre><code${safeLang ? ` class="language-${safeLang}"` : ""}>${escapeHtml(String(code).trimEnd())}</code></pre>`,
-    );
-  });
-
-  html = html.replace(/`([^`]+)`/g, (_, code) =>
-    token(`<code>${escapeHtml(String(code))}</code>`),
-  );
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
-    const safeHref = safeMatrixHref(String(href).trim());
-    if (!safeHref) return escapeHtml(String(match));
-    return token(
-      `<a href="${escapeHtml(safeHref)}">${escapeHtml(String(label))}</a>`,
-    );
-  });
-
-  html = escapeHtml(html);
-  html = html.replace(/\*\*([^*]+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/(?<!\*)\*(?!\*)([^*]+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>");
-  html = html.replace(/\n/g, "<br>");
-  html = html.replace(
-    /\uE000(\d+)\uE000/g,
-    (_, idx) => tokens[Number.parseInt(idx, 10)] ?? "",
-  );
-
-  return { body: text, formattedBody: html };
+  return { body: text, formattedBody };
 }
 
 export function shouldSkipEvent(
@@ -163,13 +232,14 @@ export function mediaAttachmentFromMatrixContent(
   };
 }
 
-function safeMatrixHref(href: string): string | undefined {
+function safeMatrixHref(href: string | undefined): string | undefined {
   if (!href) return undefined;
-  if (href.startsWith("mxc://")) return href;
 
   try {
     const url = new URL(href);
-    return ["http:", "https:", "mailto:", "matrix:"].includes(url.protocol)
+    return ["http:", "https:", "ftp:", "mailto:", "magnet:"].includes(
+      url.protocol,
+    )
       ? href
       : undefined;
   } catch {

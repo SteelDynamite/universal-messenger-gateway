@@ -276,7 +276,7 @@ runMatrixMautrixSmoke(
       ],
     });
 
-    const formattedMessage = `umg mautrix **bold** \`code\` ${runId}`;
+    const formattedMessage = `# UMG mautrix ${runId}\n\n- [x] **bold** and \`code\`\n\n| feature | result |\n| --- | --- |\n| GFM | ~~plain~~ rich |\n\n![Matrix](https://matrix.org)`;
     const receivedFormattedByB = waitForMessage(
       accountB,
       (message) =>
@@ -293,11 +293,19 @@ runMatrixMautrixSmoke(
       format: "org.matrix.custom.html",
     });
     expect(rawFormattedEvent.content.formatted_body).toContain(
-      "<strong>bold</strong>",
+      `<h1>UMG mautrix ${runId}</h1>`,
     );
     expect(rawFormattedEvent.content.formatted_body).toContain(
-      "<code>code</code>",
+      "<li>[x] <strong>bold</strong> and <code>code</code></li>",
     );
+    expect(rawFormattedEvent.content.formatted_body).toContain("<table>");
+    expect(rawFormattedEvent.content.formatted_body).toContain(
+      "<del>plain</del>",
+    );
+    expect(rawFormattedEvent.content.formatted_body).toContain(
+      '<a href="https://matrix.org">Matrix</a>',
+    );
+    expect(rawFormattedEvent.content.formatted_body).not.toContain("<img");
 
     const attachmentMediaId = `mxc://example.org/umg-mautrix-${runId}`;
     const receivedAttachmentByB = waitForMessage(

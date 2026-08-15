@@ -481,7 +481,7 @@ runMatrixSmoke(
     await accountB.provider.acceptInvite(formattedRoomId);
     await waitForChat(accountB.provider, formattedRoomId);
 
-    const formattedMessage = `umg smoke **bold** \`code\` ${runId}`;
+    const formattedMessage = `# UMG smoke ${runId}\n\n- [x] **bold** and \`code\`\n\n| feature | result |\n| --- | --- |\n| GFM | ~~plain~~ rich |\n\n![Matrix](https://matrix.org)`;
     const receivedFormattedByB = waitForMessage(
       accountB,
       (message) =>
@@ -499,11 +499,19 @@ runMatrixSmoke(
       format: "org.matrix.custom.html",
     });
     expect(rawFormattedEvent.content.formatted_body).toContain(
-      "<strong>bold</strong>",
+      `<h1>UMG smoke ${runId}</h1>`,
     );
     expect(rawFormattedEvent.content.formatted_body).toContain(
-      "<code>code</code>",
+      "<li>[x] <strong>bold</strong> and <code>code</code></li>",
     );
+    expect(rawFormattedEvent.content.formatted_body).toContain("<table>");
+    expect(rawFormattedEvent.content.formatted_body).toContain(
+      "<del>plain</del>",
+    );
+    expect(rawFormattedEvent.content.formatted_body).toContain(
+      '<a href="https://matrix.org">Matrix</a>',
+    );
+    expect(rawFormattedEvent.content.formatted_body).not.toContain("<img");
 
     const outboundFileName = `umg-smoke-export-${runId}.html`;
     const outboundFilePath = join(config.stateDir, outboundFileName);

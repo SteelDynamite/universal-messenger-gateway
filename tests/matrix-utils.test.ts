@@ -40,93 +40,124 @@ describe("escapeHtml", () => {
 });
 
 describe("formatForMatrix", () => {
-  it("returns plain body only for text without markdown", () => {
-    const result = formatForMatrix("hello world");
-    expect(result).toEqual({ body: "hello world" });
-    expect(result.formattedBody).toBeUndefined();
+  it("preserves the original body and formats plain text", () => {
+    expect(formatForMatrix("hello world")).toEqual({
+      body: "hello world",
+      formattedBody: "<p>hello world</p>",
+    });
   });
 
-  it("converts **bold** to <strong>", () => {
-    const result = formatForMatrix("this is **bold** text");
-    expect(result.body).toBe("this is **bold** text");
-    expect(result.formattedBody).toContain("<strong>bold</strong>");
-  });
-
-  it("converts *italic* to <em>", () => {
-    const result = formatForMatrix("this is *italic* text");
-    expect(result.formattedBody).toContain("<em>italic</em>");
-  });
-
-  it("does not confuse **bold** with *italic*", () => {
-    const result = formatForMatrix("**bold** and *italic*");
+  it("renders GFM inline formatting", () => {
+    const result = formatForMatrix(
+      "**bold**, _italic_, ~~deleted~~, and `code`",
+    );
     expect(result.formattedBody).toContain("<strong>bold</strong>");
     expect(result.formattedBody).toContain("<em>italic</em>");
+    expect(result.formattedBody).toContain("<del>deleted</del>");
+    expect(result.formattedBody).toContain("<code>code</code>");
   });
 
-  it("converts [text](url) to <a href>", () => {
-    const result = formatForMatrix("click [here](https://example.com)");
+  it("renders headings, blockquotes, and lists", () => {
+    const result = formatForMatrix(
+      "# Heading\n\n> quote\n\n- one\n- two\n\n3. three",
+    );
+    expect(result.formattedBody).toContain("<h1>Heading</h1>");
+    expect(result.formattedBody).toContain("<blockquote>");
+    expect(result.formattedBody).toContain("<ul>");
+    expect(result.formattedBody).toContain('<ol start="3">');
+  });
+
+  it("renders task lists without unsupported input elements", () => {
+    const result = formatForMatrix("- [x] done\n- [ ] todo");
+    expect(result.formattedBody).toContain("<li>[x] done</li>");
+    expect(result.formattedBody).toContain("<li>[ ] todo</li>");
+    expect(result.formattedBody).not.toContain("<input");
+  });
+
+  it("renders GFM tables with Matrix-supported attributes", () => {
+    const result = formatForMatrix(
+      "| left | right |\n| :--- | ---: |\n| one | two |",
+    );
+    expect(result.formattedBody).toContain("<table>");
+    expect(result.formattedBody).toContain("<th>left</th>");
+    expect(result.formattedBody).toContain("<td>two</td>");
+    expect(result.formattedBody).not.toContain("align=");
+  });
+
+  it("renders links and GFM autolinks", () => {
+    const result = formatForMatrix(
+      "[label](https://example.com/path) and https://matrix.org",
+    );
     expect(result.formattedBody).toContain(
-      '<a href="https://example.com">here</a>',
+      '<a href="https://example.com/path">label</a>',
     );
-  });
-
-  it("escapes link labels and rejects unsafe URL schemes", () => {
-    const label = formatForMatrix(
-      'click [<b>here</b>](https://example.com?q="x")',
-    );
-    expect(label.formattedBody).toContain(
-      '<a href="https://example.com?q=&quot;x&quot;">&lt;b&gt;here&lt;/b&gt;</a>',
-    );
-
-    const unsafe = formatForMatrix("click [here](javascript:alert(1))");
-    expect(unsafe.formattedBody).not.toContain("<a ");
-  });
-
-  it("converts newlines to <br>", () => {
-    const result = formatForMatrix("line *one*\nline two");
-    expect(result.formattedBody).toContain("<br>");
-  });
-
-  it("protects inline code from markdown conversion", () => {
-    const result = formatForMatrix("use `**not bold**` here");
-    expect(result.formattedBody).toContain("<code>");
-    expect(result.formattedBody).not.toContain("<strong>not bold</strong>");
-  });
-
-  it("protects code blocks from markdown conversion", () => {
-    const result = formatForMatrix("```\n**not bold**\n```");
-    expect(result.formattedBody).toContain("<pre><code>");
-    expect(result.formattedBody).not.toContain("<strong>");
-  });
-
-  it("adds language class to code blocks", () => {
-    const result = formatForMatrix("```typescript\nconst x = 1;\n```");
-    expect(result.formattedBody).toContain('class="language-typescript"');
-  });
-
-  it("escapes HTML inside code blocks", () => {
-    const result = formatForMatrix("```\n<script>alert('xss')</script>\n```");
-    expect(result.formattedBody).toContain("&lt;script&gt;");
-    expect(result.formattedBody).not.toContain("<script>");
-  });
-
-  it("escapes HTML inside inline code", () => {
-    const result = formatForMatrix("use `<div>` tag");
-    expect(result.formattedBody).toContain("&lt;div&gt;");
-  });
-
-  it("escapes HTML outside code", () => {
-    const result = formatForMatrix("<img src=x onerror=alert(1)> and **bold**");
     expect(result.formattedBody).toContain(
-      "&lt;img src=x onerror=alert(1)&gt;",
+      '<a href="https://matrix.org">https://matrix.org</a>',
+    );
+  });
+
+  it("rejects unsafe and relative links", () => {
+    const unsafe = formatForMatrix(
+      "[bad](javascript:alert(1)) and [local](/path)",
+    );
+    expect(unsafe.formattedBody).not.toContain("href=");
+    expect(unsafe.formattedBody).toContain("bad (javascript:alert(1))");
+    expect(unsafe.formattedBody).toContain("local (/path)");
+  });
+
+  it("renders Markdown images as linked plain alt text", () => {
+    const result = formatForMatrix(
+      "![alt *text*](https://example.com/image.png)",
+    );
+    expect(result.formattedBody).toContain(
+      '<a href="https://example.com/image.png">alt text</a>',
     );
     expect(result.formattedBody).not.toContain("<img");
   });
 
-  it("preserves original text as body even when formatted", () => {
-    const original = "**bold** and `code`";
-    const result = formatForMatrix(original);
-    expect(result.body).toBe(original);
+  it("preserves line breaks for chat rendering", () => {
+    const result = formatForMatrix("line one\nline two");
+    expect(result.formattedBody).toMatch(/<br\s*\/>/);
+  });
+
+  it("renders fenced code and permits safe language classes", () => {
+    const result = formatForMatrix(
+      "```typescript\nconst html = '<script>';\n```",
+    );
+    expect(result.formattedBody).toContain("<pre><code");
+    expect(result.formattedBody).toContain('class="language-typescript"');
+    expect(result.formattedBody).toContain("&lt;script&gt;");
+    expect(result.formattedBody).not.toContain("<script>");
+  });
+
+  it("sanitizes raw HTML to the Matrix subset", () => {
+    const result = formatForMatrix(
+      '<u onclick="alert(1)">safe</u><a href="/relative">local</a><a href="javascript:bad">bad</a><script>alert(2)</script>',
+    );
+    expect(result.formattedBody).toContain("<u>safe</u>");
+    expect(result.formattedBody).toContain("<a>local</a><a>bad</a>");
+    expect(result.formattedBody).not.toContain("href=");
+    expect(result.formattedBody).not.toContain("onclick");
+    expect(result.formattedBody).not.toContain("<script");
+  });
+
+  it("allows mxc images from raw Matrix HTML only", () => {
+    const result = formatForMatrix(
+      '<img src="https://example.com/tracker.png" alt="remote"><img src="mxc://example.org/id" alt="mxc" onerror="bad">',
+    );
+    expect(result.formattedBody).not.toContain("tracker.png");
+    expect(result.formattedBody).toContain(
+      '<img src="mxc://example.org/id" alt="mxc" />',
+    );
+    expect(result.formattedBody).not.toContain("onerror");
+  });
+
+  it("escapes HTML inside code", () => {
+    const block = formatForMatrix("```\n<script>alert('xss')</script>\n```");
+    const inline = formatForMatrix("use `<div>` tag");
+    expect(block.formattedBody).toContain("&lt;script&gt;");
+    expect(block.formattedBody).not.toContain("<script>");
+    expect(inline.formattedBody).toContain("&lt;div&gt;");
   });
 });
 
@@ -421,13 +452,12 @@ describe("formatForMatrix properties", () => {
     );
   });
 
-  it("formattedBody is undefined when no markdown chars present", () => {
-    const noMarkdown = fc.string().filter((s) => !/[*_`#[]/.test(s));
-
+  it("formattedBody never emits executable HTML", () => {
     fc.assert(
-      fc.property(noMarkdown, (text) => {
-        const result = formatForMatrix(text);
-        expect(result.formattedBody).toBeUndefined();
+      fc.property(fc.string(), (text) => {
+        const formatted = formatForMatrix(text).formattedBody ?? "";
+        expect(formatted).not.toMatch(/<(script|iframe|style)\b/i);
+        expect(formatted).not.toMatch(/\son\w+=/i);
       }),
     );
   });

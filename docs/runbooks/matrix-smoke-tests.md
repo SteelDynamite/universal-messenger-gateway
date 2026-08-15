@@ -70,7 +70,7 @@ set -a && source state/matrix-smoke.env && set +a && \
 Current default Matrix smoke coverage:
 
 - Plaintext Matrix send/receive through UMG-shaped messages.
-- Formatted outbound text body.
+- Sanitized GFM outbound text, including tables, task lists, and linked image alt text.
 - Invite accept and reject.
 - Encrypted Matrix send/receive.
 - Direct replies, threads, and replies inside threads.
@@ -98,7 +98,7 @@ Current default Matrix smoke coverage:
 - Account B typing is emitted as an inbound gateway snapshot for account A.
 - Account A sends threaded text through the gateway command path.
 - Account B sends text that is serialized through the gateway JSON-lines event path.
-- Account A sends formatted text in an unencrypted room; Matrix receives the formatted body.
+- Account A sends GFM text in an unencrypted room; Matrix receives its fallback body and sanitized formatted body without remote `<img>` elements.
 - That room is upgraded to encryption; both directions still receive normalized text and raw
   Matrix events are encrypted.
 - Accounts A, B, and C join an encrypted group room; Account A receives a normalized mention
