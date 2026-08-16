@@ -3,8 +3,10 @@
  * Extracted for testability; no SDK or network dependencies.
  */
 
+import { decodeHTML } from "entities";
 import { Marked, Renderer, TextRenderer } from "marked";
 import sanitizeHtml from "sanitize-html";
+import stringWidth from "string-width";
 import type { MediaAttachment } from "../protocol.js";
 
 export type MatrixRoomEvent = {
@@ -76,8 +78,36 @@ const MATRIX_HTML_TAGS = [
   "summary",
 ];
 
+const plainTextRenderer = new TextRenderer();
+plainTextRenderer.br = () => " ";
+plainTextRenderer.html = ({ text }) =>
+  /^<br\s*\/?\s*>$/i.test(text)
+    ? " "
+    : sanitizeHtml(text, { allowedTags: [], allowedAttributes: {} });
+
 const renderer = new Renderer();
 renderer.checkbox = ({ checked }) => (checked ? "[x] " : "[ ] ");
+renderer.table = function ({ header, rows }) {
+  const parsedRows = [header, ...rows].map((row) =>
+    row.map((cell) =>
+      decodeHTML(this.parser.parseInline(cell.tokens, plainTextRenderer))
+        .replace(/\s+/gu, " ")
+        .trim(),
+    ),
+  );
+  const widths = header.map((_, column) =>
+    Math.max(3, ...parsedRows.map((row) => stringWidth(row[column] ?? ""))),
+  );
+  const alignments = header.map((cell) => cell.align);
+  const lines = [
+    formatTableRow(parsedRows[0] ?? [], widths, alignments),
+    widths.map((width) => "-".repeat(width)).join("-+-"),
+    ...parsedRows
+      .slice(1)
+      .map((row) => formatTableRow(row, widths, alignments)),
+  ];
+  return `<pre><code>${escapeHtml(lines.join("\n"))}</code></pre>`;
+};
 renderer.link = function ({ href, tokens }) {
   const label = this.parser.parseInline(tokens);
   const safeHref = safeMatrixHref(href);
@@ -96,6 +126,26 @@ renderer.image = function ({ href, tokens }) {
 };
 
 const markdown = new Marked({ gfm: true, breaks: true, renderer });
+
+function formatTableRow(
+  cells: string[],
+  widths: number[],
+  alignments: Array<"center" | "left" | "right" | null>,
+): string {
+  return widths
+    .map((width, column) => {
+      const cell = cells[column] ?? "";
+      const padding = width - stringWidth(cell);
+      if (alignments[column] === "right")
+        return `${" ".repeat(padding)}${cell}`;
+      if (alignments[column] === "center") {
+        const left = Math.floor(padding / 2);
+        return `${" ".repeat(left)}${cell}${" ".repeat(padding - left)}`;
+      }
+      return `${cell}${" ".repeat(padding)}`;
+    })
+    .join(" | ");
+}
 
 export function formatForMatrix(text: string): MatrixFormattedMessage {
   const html = markdown.parse(text, { async: false });

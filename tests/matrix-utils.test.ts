@@ -74,14 +74,31 @@ describe("formatForMatrix", () => {
     expect(result.formattedBody).not.toContain("<input");
   });
 
-  it("renders GFM tables with Matrix-supported attributes", () => {
+  it("renders GFM tables as aligned code blocks", () => {
     const result = formatForMatrix(
       "| left | right |\n| :--- | ---: |\n| one | two |",
     );
-    expect(result.formattedBody).toContain("<table>");
-    expect(result.formattedBody).toContain("<th>left</th>");
-    expect(result.formattedBody).toContain("<td>two</td>");
-    expect(result.formattedBody).not.toContain("align=");
+    expect(result.formattedBody).toBe(
+      "<pre><code>left | right\n-----+------\none  |   two</code></pre>",
+    );
+    expect(result.formattedBody).not.toContain("<table>");
+  });
+
+  it("flattens formatted table cells and escapes their text", () => {
+    const result = formatForMatrix(
+      "| rich | symbol |\n| --- | --- |\n| **bold** [label](https://example.com) | `<x>` &amp; |",
+    );
+    expect(result.formattedBody).toContain("bold label");
+    expect(result.formattedBody).toContain("&lt;x&gt; &amp;");
+    expect(result.formattedBody).not.toMatch(/<(strong|a|table)>/);
+  });
+
+  it("aligns table columns by Unicode display width", () => {
+    const result = formatForMatrix(
+      "| name | value |\n| --- | ---: |\n| 猫 | 1 |\n| dog | 22 |",
+    );
+    expect(result.formattedBody).toContain("猫   |     1");
+    expect(result.formattedBody).toContain("dog  |    22");
   });
 
   it("renders links and GFM autolinks", () => {

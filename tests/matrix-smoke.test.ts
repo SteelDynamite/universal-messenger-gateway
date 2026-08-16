@@ -504,10 +504,13 @@ runMatrixSmoke(
     expect(rawFormattedEvent.content.formatted_body).toContain(
       "<li>[x] <strong>bold</strong> and <code>code</code></li>",
     );
-    expect(rawFormattedEvent.content.formatted_body).toContain("<table>");
     expect(rawFormattedEvent.content.formatted_body).toContain(
-      "<del>plain</del>",
+      "<pre><code>feature | result",
     );
+    expect(rawFormattedEvent.content.formatted_body).toContain(
+      "GFM     | plain rich</code></pre>",
+    );
+    expect(rawFormattedEvent.content.formatted_body).not.toContain("<table>");
     expect(rawFormattedEvent.content.formatted_body).toContain(
       '<a href="https://matrix.org">Matrix</a>',
     );

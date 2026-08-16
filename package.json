@@ -36,7 +36,9 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
+    "entities": "^8.0.0",
     "marked": "^18.0.9",
-    "sanitize-html": "^2.17.7"
+    "sanitize-html": "^2.17.7",
+    "string-width": "^8.2.2"
   }
 }

@@ -40,7 +40,7 @@ umg chat
 `umg setup matrix` writes `state/config.json` and local secret files such as
 `state/matrix-access-token.txt` with `600` permissions. Matrix E2EE state is stored
 in `state/mautrix-crypto.db`; bounded media downloads are stored under `state/media/`.
-Outbound Matrix text preserves its original fallback body and adds sanitized GFM formatting for headings, lists, task lists, tables, links, code, and other rich text. Markdown images render as linked alt text; actual images use attachments.
+Outbound Matrix text preserves its original fallback body and adds sanitized GFM formatting for headings, lists, task lists, links, code, and other rich text. Tables use aligned code blocks for Element X compatibility. Markdown images render as linked alt text; actual images use attachments.
 Outbound Matrix attachments stream from disk, preserve image/file/audio/video kind, support same-event captions with the original filename, and reject files over 1 GiB.
 Matrix chat type follows `m.direct`; unnamed two-member rooms remain a compatibility fallback, while named rooms and channels are group chats.
 State defaults to `./state`; override it with
