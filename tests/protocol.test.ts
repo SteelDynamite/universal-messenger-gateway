@@ -4,6 +4,8 @@ import type {
   ChatHistorySearchResult,
   GatewayCommand,
   GatewayEvent,
+  ThreadContext,
+  ThreadContextQuery,
 } from "../src/index.js";
 import { isGatewayCommand } from "../src/index.js";
 
@@ -83,6 +85,38 @@ test("models chat history search results", () => {
   expect(query.messageId).toBe("$event");
   expect(query.fromTimestamp).toBeLessThan(query.toTimestamp);
   expect(result.messages[0]?.permalink).toContain("matrix.to");
+});
+
+test("models thread context resolution", () => {
+  const query = {
+    transport: "matrix",
+    chatId: "!room:example.org",
+    threadRootId: "$root",
+    invocationId: "$reply",
+    limit: 25,
+    maxContentChars: 8_000,
+    deadlineMs: 10_000,
+  } satisfies ThreadContextQuery;
+  const context = {
+    root: {
+      status: "available",
+      wasMentioned: true,
+      message: {
+        transport: "matrix",
+        chatId: query.chatId,
+        messageId: query.threadRootId,
+        content: "@bot deployment",
+        timestamp: 1,
+      },
+    },
+    history: {
+      messages: [],
+      statuses: ["undecryptable", "partial", "truncated"],
+    },
+  } satisfies ThreadContext;
+
+  expect(context.root.wasMentioned).toBe(true);
+  expect(context.history.statuses).toContain("truncated");
 });
 
 test("models inbound invite events", () => {

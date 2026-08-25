@@ -59,6 +59,43 @@ export type ChatHistorySearchResult = {
   errors?: string[];
 };
 
+export type ThreadRootStatus =
+  | "available"
+  | "unavailable"
+  | "redacted"
+  | "undecryptable";
+
+export type ThreadHistoryStatus =
+  | "complete"
+  | "unavailable"
+  | "redacted"
+  | "undecryptable"
+  | "partial"
+  | "truncated";
+
+export type ThreadContextQuery = {
+  transport: TransportName;
+  chatId: string;
+  threadRootId: string;
+  invocationId: string;
+  limit?: number;
+  maxContentChars?: number;
+  deadlineMs?: number;
+};
+
+export type ThreadContext = {
+  root: {
+    status: ThreadRootStatus;
+    wasMentioned: boolean;
+    message?: ChatHistoryMessage;
+  };
+  history: {
+    messages: ChatHistoryMessage[];
+    statuses: ThreadHistoryStatus[];
+    errors?: string[];
+  };
+};
+
 export type MessageRelation = {
   messageId: string;
   relationType: string;

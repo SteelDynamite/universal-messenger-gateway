@@ -9,6 +9,7 @@ import type {
   ChatHistorySearchResult,
   MediaAttachmentKind,
   MessageReference,
+  ThreadContextQuery,
   TransportProvider,
 } from "../src/index.js";
 
@@ -17,6 +18,7 @@ class AgentTransport implements TransportProvider {
   isConnected = true;
   readonly commands: unknown[] = [];
   readonly historyQueries: ChatHistoryQuery[] = [];
+  readonly threadContextQueries: ThreadContextQuery[] = [];
   readonly typings: Array<{
     chatId: string;
     typing: boolean;
@@ -136,6 +138,20 @@ class AgentTransport implements TransportProvider {
       scannedMessages: 1,
     };
   }
+  async resolveThreadContext(query: ThreadContextQuery) {
+    this.threadContextQueries.push(query);
+    return {
+      root: {
+        status: "available" as const,
+        wasMentioned: true,
+        message: historyMessage,
+      },
+      history: {
+        messages: [historyMessage],
+        statuses: ["complete" as const],
+      },
+    };
+  }
   onMessage(): void {}
   onError(): void {}
 }
@@ -198,6 +214,25 @@ test("generated help exposes only registered camelCase operations", async () => 
 test("agent history and metadata operations use bounded normalized transport data", async () => {
   const { client, transport } = createTestClient();
 
+  await expect(
+    client.resolveThreadContext({
+      transport: "matrix",
+      chatId: "!room",
+      threadRootId: "$root",
+      invocationId: "$event",
+    }),
+  ).resolves.toMatchObject({
+    root: { status: "available", wasMentioned: true },
+    history: { statuses: ["complete"] },
+  });
+  expect(transport.threadContextQueries).toEqual([
+    {
+      transport: "matrix",
+      chatId: "!room",
+      threadRootId: "$root",
+      invocationId: "$event",
+    },
+  ]);
   await expect(
     client.executeAgentOperation({
       operation: "listChats",

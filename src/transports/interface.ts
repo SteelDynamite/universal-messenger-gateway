@@ -8,6 +8,8 @@ import type {
   MessageReference,
   MessageRelationsResult,
   PinnedMessageResolution,
+  ThreadContext,
+  ThreadContextQuery,
   TransportName,
 } from "../protocol.js";
 
@@ -73,6 +75,7 @@ export interface TransportProvider {
   ): Promise<MessageRelationsResult>;
   health?(): Promise<TransportHealth[]>;
   searchHistory?(query: ChatHistoryQuery): Promise<ChatHistorySearchResult>;
+  resolveThreadContext?(query: ThreadContextQuery): Promise<ThreadContext>;
   sendMessage(
     chatId: string,
     text: string,

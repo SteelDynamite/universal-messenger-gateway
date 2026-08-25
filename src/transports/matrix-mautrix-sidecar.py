@@ -26,6 +26,7 @@ from mautrix.errors.crypto import DecryptionError, SessionNotFound
 from mautrix.types import (
     BaseFileInfo,
     EncryptedEvent,
+    Event,
     EventType,
     Format,
     ImageInfo,
@@ -862,6 +863,181 @@ class Sidecar:
             **({"errors": list(dict.fromkeys(errors))[:10]} if errors else {}),
         }
 
+    async def resolve_thread_context(self, command: dict[str, Any]) -> dict[str, Any]:
+        client = require_client(self.client)
+        room_id = str(command.get("chatId") or "")
+        root_id = str(command.get("threadRootId") or "")
+        invocation_id = str(command.get("invocationId") or "")
+        if not room_id or not root_id or not invocation_id:
+            return unavailable_thread_context()
+        try:
+            root_event = await client.get_event(room_id, root_id)
+        except Exception:
+            return unavailable_thread_context()
+        if is_redacted_event(root_event):
+            return thread_context("redacted")
+        root_event, skipped_decryption = await self.decrypt_history_event(root_event)
+        if not root_event:
+            return thread_context("undecryptable" if skipped_decryption else "unavailable")
+        root_content = serialize(getattr(root_event, "content", None))
+        if root_content.get("m.new_content"):
+            return unavailable_thread_context()
+        root_message = await self.normalize_history_event(room_id, root_event, True)
+        if not root_message:
+            return unavailable_thread_context()
+
+        statuses: set[str] = set()
+        errors: list[str] = []
+        messages: list[dict[str, Any]] = []
+        message_ids: set[str] = set()
+        max_messages = bounded_int(command.get("limit"), 50, 1, 100)
+        max_content_chars = bounded_int(command.get("maxContentChars"), 16_000, 1, 64_000)
+        deadline = time.monotonic() + bounded_int(command.get("deadlineMs"), 10_000, 1000, 55_000) / 1000
+        content_chars = 0
+
+        def add_message(message: dict[str, Any]) -> bool:
+            nonlocal content_chars
+            if message.get("messageId") in message_ids:
+                return True
+            if len(messages) >= max_messages:
+                statuses.add("truncated")
+                return False
+            content = str(message.get("content") or "")
+            remaining = max_content_chars - content_chars
+            if len(content) > remaining:
+                message = {**message, "content": content[:max(0, remaining)]}
+                statuses.add("truncated")
+            content_chars += min(len(content), max(0, remaining))
+            messages.append(message)
+            message_ids.add(str(message.get("messageId")))
+            return "truncated" not in statuses
+
+        add_message(root_message)
+        invocation_message: dict[str, Any] | None = root_message if invocation_id == root_id else None
+        if invocation_id != root_id:
+            try:
+                invocation_event = await client.get_event(room_id, invocation_id)
+            except Exception as error:
+                statuses.add("partial")
+                errors.append(str(error))
+                invocation_event = None
+            if is_redacted_event(invocation_event):
+                statuses.add("redacted")
+                invocation_event = None
+            elif invocation_event:
+                invocation_event, skipped_decryption = await self.decrypt_history_event(invocation_event)
+                if not invocation_event:
+                    statuses.add("undecryptable" if skipped_decryption else "unavailable")
+                elif message_references(room_id, serialize(getattr(invocation_event, "content", None))).get("threadTo", {}).get("messageId") != root_id:
+                    statuses.add("unavailable")
+                else:
+                    invocation_message = await self.normalize_history_event(room_id, invocation_event, True)
+
+        token: str | None = None
+        while invocation_id not in message_ids and "truncated" not in statuses:
+            if time.monotonic() >= deadline:
+                statuses.add("truncated")
+                break
+            try:
+                response = await client.api.request(
+                    Method.GET,
+                    MatrixPath.v1.rooms[room_id].relations[root_id][RelationType.THREAD],
+                    query_params=compact({"limit": "50", "from": token, "dir": "f"}),
+                    metrics_method="thread_relations",
+                )
+            except Exception as error:
+                statuses.add("partial")
+                errors.append(str(error))
+                break
+            chunk = response.get("chunk") if isinstance(response, dict) else None
+            if not isinstance(chunk, list):
+                statuses.add("partial")
+                break
+            for raw_event in chunk:
+                if time.monotonic() >= deadline:
+                    statuses.add("truncated")
+                    break
+                if not isinstance(raw_event, dict):
+                    statuses.add("partial")
+                    continue
+                try:
+                    event = Event.deserialize(raw_event)
+                except Exception:
+                    statuses.add("partial")
+                    continue
+                if is_redacted_event(event):
+                    statuses.add("redacted")
+                    continue
+                message, skipped_decryption = await self.history_message(room_id, event, True)
+                if skipped_decryption:
+                    statuses.add("undecryptable")
+                if not message:
+                    continue
+                if not add_message(message):
+                    break
+                if message.get("messageId") == invocation_id:
+                    break
+            if invocation_id in message_ids or "truncated" in statuses:
+                break
+            next_token = response.get("next_batch") if isinstance(response, dict) else None
+            if not isinstance(next_token, str) or not next_token or next_token == token:
+                statuses.add("partial")
+                break
+            token = next_token
+
+        if invocation_id not in message_ids:
+            if invocation_message:
+                add_message(invocation_message)
+                statuses.add("partial")
+            else:
+                statuses.add("unavailable")
+        messages.sort(key=history_event_timestamp_from_message)
+        if not statuses:
+            statuses.add("complete")
+        return {
+            "root": {
+                "status": "available",
+                "wasMentioned": was_bot_mentioned(str(root_content.get("body") or ""), self.bot_user_id, root_content),
+                "message": root_message,
+            },
+            "history": compact(
+                {
+                    "messages": messages,
+                    "statuses": thread_history_statuses(statuses),
+                    "errors": list(dict.fromkeys(errors))[:10] or None,
+                }
+            ),
+        }
+
+    async def normalize_history_event(self, room_id: str, event: Any, include_media_download: bool = False) -> dict[str, Any] | None:
+        raw_content = serialize(getattr(event, "content", None))
+        if raw_content.get("m.new_content"):
+            return None
+        body = raw_content.get("body")
+        content = body.strip() if isinstance(body, str) else ""
+        attachment = media_attachment(raw_content)
+        if not content and not attachment:
+            return None
+        event_id = str(getattr(event, "event_id", "") or "")
+        if not event_id:
+            return None
+        if attachment and include_media_download:
+            attachment["download"] = await self.download_media_attachment(raw_content, attachment, event_id)
+        return compact(
+            {
+                "transport": "matrix",
+                "chatId": room_id,
+                "messageId": event_id,
+                "content": content or str(attachment.get("description") or attachment.get("fileName") or ""),
+                "username": extract_username(str(getattr(event, "sender", ""))),
+                "userId": str(getattr(event, "sender", "")) or None,
+                "timestamp": int(getattr(event, "timestamp", None) or now_ms()),
+                "permalink": matrix_permalink(room_id, event_id),
+                "attachments": [attachment] if attachment else None,
+                **message_references(room_id, raw_content),
+            }
+        )
+
     async def timestamp_to_event_id(self, room_id: str, timestamp: int, direction: str) -> str | None:
         try:
             response = await require_client(self.client).api.request(
@@ -889,33 +1065,7 @@ class Sidecar:
         event, skipped_decryption = await self.decrypt_history_event(event)
         if not event:
             return None, skipped_decryption
-        raw_content = serialize(getattr(event, "content", None))
-        if raw_content.get("m.new_content"):
-            return None, skipped_decryption
-        body = raw_content.get("body")
-        content = body.strip() if isinstance(body, str) else ""
-        attachment = media_attachment(raw_content)
-        if not content and not attachment:
-            return None, skipped_decryption
-        event_id = str(getattr(event, "event_id", "") or "")
-        if not event_id:
-            return None, skipped_decryption
-        if attachment and include_media_download:
-            attachment["download"] = await self.download_media_attachment(raw_content, attachment, event_id)
-        return compact(
-            {
-                "transport": "matrix",
-                "chatId": room_id,
-                "messageId": event_id,
-                "content": content or str(attachment.get("description") or attachment.get("fileName") or ""),
-                "username": extract_username(str(getattr(event, "sender", ""))),
-                "userId": str(getattr(event, "sender", "")) or None,
-                "timestamp": int(getattr(event, "timestamp", None) or now_ms()),
-                "permalink": matrix_permalink(room_id, event_id),
-                "attachments": [attachment] if attachment else None,
-                **message_references(room_id, raw_content),
-            }
-        ), skipped_decryption
+        return await self.normalize_history_event(room_id, event, include_media_download), skipped_decryption
 
     async def decrypt_history_event(self, event: Any) -> tuple[Any | None, bool]:
         if getattr(event, "type", None) != EventType.ROOM_ENCRYPTED:
@@ -1035,7 +1185,7 @@ class Sidecar:
         is_group_chat = chat_type == "group"
         was_mentioned = is_group_chat and was_bot_mentioned(body, self.bot_user_id, raw_content)
         content = strip_bot_mention(body, self.bot_user_id) if was_mentioned else body
-        if not content and not attachment:
+        if not content and not attachment and not was_mentioned:
             return
         message = compact(
             {
@@ -1265,6 +1415,7 @@ async def run() -> None:
         "get_relations": sidecar.get_relations,
         "health": lambda command: sidecar.health(),
         "search_history": sidecar.search_history,
+        "resolve_thread_context": sidecar.resolve_thread_context,
         "send_message": sidecar.send_message,
         "send_file": sidecar.send_file,
         "send_reaction": sidecar.send_reaction,
@@ -1529,6 +1680,42 @@ def optional_int(value: Any) -> int | None:
 def history_event_timestamp(event: Any) -> int:
     timestamp = getattr(event, "timestamp", None)
     return timestamp if isinstance(timestamp, int) else now_ms()
+
+
+def unavailable_thread_context() -> dict[str, Any]:
+    return thread_context("unavailable")
+
+
+def thread_context(
+    root_status: str,
+    was_mentioned: bool = False,
+    message: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return compact(
+        {
+            "root": compact(
+                {
+                    "status": root_status,
+                    "wasMentioned": was_mentioned,
+                    "message": message,
+                }
+            ),
+            "history": {"messages": [], "statuses": ["unavailable"]},
+        }
+    )
+
+
+def thread_history_statuses(statuses: set[str]) -> list[str]:
+    return [
+        status
+        for status in ["complete", "unavailable", "redacted", "undecryptable", "partial", "truncated"]
+        if status in statuses
+    ]
+
+
+def history_event_timestamp_from_message(message: dict[str, Any]) -> int:
+    timestamp = message.get("timestamp")
+    return timestamp if isinstance(timestamp, int) else 0
 
 
 def is_redacted_event(event: Any) -> bool:

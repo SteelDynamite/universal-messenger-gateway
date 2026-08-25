@@ -726,8 +726,8 @@ runMatrixMautrixSmoke(
       }, "timed out waiting for Matrix group-chat metadata"),
     ).toMatchObject({ chatId: groupRoomId, type: "group" });
 
-    const groupMessage = `${accountAUserId} umg mautrix group mention ${runId}`;
-    const groupMessageContent = `umg mautrix group mention ${runId}`;
+    const groupMessage = accountAUserId;
+    const groupMessageContent = "";
     const receivedGroupMessageByA = waitForMessage(
       accountA,
       (message) =>
@@ -735,12 +735,113 @@ runMatrixMautrixSmoke(
         message.content === groupMessageContent,
     );
     await accountB.provider.sendMessage(groupRoomId, groupMessage);
-    expect(await receivedGroupMessageByA).toMatchObject({
+    const groupMentionAtA = await receivedGroupMessageByA;
+    expect(groupMentionAtA).toMatchObject({
       transport: "matrix",
       chatId: groupRoomId,
       content: groupMessageContent,
       isGroupChat: true,
       wasMentioned: true,
+    });
+
+    const activeThreadMessage = `umg mautrix active thread ${runId}`;
+    const receivedActiveThreadByA = waitForMessage(
+      accountA,
+      (message) =>
+        message.chatId === groupRoomId &&
+        message.content === activeThreadMessage,
+    );
+    await accountC.provider.sendMessage(
+      groupRoomId,
+      activeThreadMessage,
+      undefined,
+      {
+        transport: "matrix",
+        chatId: groupRoomId,
+        messageId: requiredMessageId(groupMentionAtA),
+      },
+    );
+    const activeThreadAtA = await receivedActiveThreadByA;
+    expect(
+      await accountA.provider.resolveThreadContext({
+        transport: "matrix",
+        chatId: groupRoomId,
+        threadRootId: requiredMessageId(groupMentionAtA),
+        invocationId: requiredMessageId(activeThreadAtA),
+        limit: 10,
+        maxContentChars: 2_000,
+        deadlineMs: 10_000,
+      }),
+    ).toMatchObject({
+      root: { status: "available", wasMentioned: true },
+      history: {
+        statuses: ["complete"],
+        messages: [
+          { messageId: requiredMessageId(groupMentionAtA) },
+          { messageId: requiredMessageId(activeThreadAtA) },
+        ],
+      },
+    });
+
+    const inactiveRootMessage = `umg mautrix inactive root ${runId}`;
+    const receivedInactiveRootByA = waitForMessage(
+      accountA,
+      (message) =>
+        message.chatId === groupRoomId &&
+        message.content === inactiveRootMessage,
+    );
+    await accountC.provider.sendMessage(groupRoomId, inactiveRootMessage);
+    const inactiveRootAtA = await receivedInactiveRootByA;
+    await new MatrixControlClient(
+      config.homeserverUrl,
+      loggedInC.account.accessToken,
+    ).sendMessage(groupRoomId, {
+      msgtype: "m.text",
+      body: accountAUserId,
+      "m.new_content": { msgtype: "m.text", body: accountAUserId },
+      "m.relates_to": {
+        rel_type: "m.replace",
+        event_id: requiredMessageId(inactiveRootAtA),
+      },
+    });
+    const oneOffThreadMessage = `${accountAUserId} umg mautrix one-off ${runId}`;
+    const oneOffThreadContent = `umg mautrix one-off ${runId}`;
+    const receivedOneOffThreadByA = waitForMessage(
+      accountA,
+      (message) =>
+        message.chatId === groupRoomId &&
+        message.content === oneOffThreadContent,
+    );
+    await accountB.provider.sendMessage(
+      groupRoomId,
+      oneOffThreadMessage,
+      undefined,
+      {
+        transport: "matrix",
+        chatId: groupRoomId,
+        messageId: requiredMessageId(inactiveRootAtA),
+      },
+    );
+    const oneOffThreadAtA = await receivedOneOffThreadByA;
+    expect(
+      await accountA.provider.resolveThreadContext({
+        transport: "matrix",
+        chatId: groupRoomId,
+        threadRootId: requiredMessageId(inactiveRootAtA),
+        invocationId: requiredMessageId(oneOffThreadAtA),
+        limit: 10,
+        maxContentChars: 2_000,
+        deadlineMs: 10_000,
+      }),
+    ).toMatchObject({
+      root: { status: "available", wasMentioned: false },
+      history: {
+        statuses: ["complete"],
+        messages: [
+          { messageId: requiredMessageId(inactiveRootAtA) },
+          { messageId: requiredMessageId(oneOffThreadAtA) },
+        ],
+      },
     });
 
     await accountB.provider.leaveChat(plainRoomId, "mautrix smoke leave");

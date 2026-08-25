@@ -15,6 +15,8 @@ import type {
   MessageReference,
   MessageRelationsResult,
   PinnedMessageResolution,
+  ThreadContext,
+  ThreadContextQuery,
 } from "../protocol.js";
 import type {
   TransportChat,
@@ -297,6 +299,29 @@ export class MautrixMatrixProvider implements TransportProvider {
           ...(query.maxMessagesPerChat === undefined
             ? {}
             : { maxMessagesPerChat: query.maxMessagesPerChat }),
+        },
+        60_000,
+      ),
+    );
+  }
+
+  async resolveThreadContext(
+    query: ThreadContextQuery,
+  ): Promise<ThreadContext> {
+    return asThreadContext(
+      await this.request(
+        "resolve_thread_context",
+        {
+          chatId: query.chatId,
+          threadRootId: query.threadRootId,
+          invocationId: query.invocationId,
+          ...(query.limit === undefined ? {} : { limit: query.limit }),
+          ...(query.maxContentChars === undefined
+            ? {}
+            : { maxContentChars: query.maxContentChars }),
+          ...(query.deadlineMs === undefined
+            ? {}
+            : { deadlineMs: query.deadlineMs }),
         },
         60_000,
       ),
@@ -703,6 +728,67 @@ function isChatHistoryMessage(
     typeof value.content === "string" &&
     typeof value.timestamp === "number"
   );
+}
+
+function asThreadContext(value: unknown): ThreadContext {
+  if (!isRecord(value) || !isRecord(value.root) || !isRecord(value.history)) {
+    return unavailableThreadContext();
+  }
+  const rootStatus = value.root.status;
+  if (!isThreadRootStatus(rootStatus)) {
+    return unavailableThreadContext();
+  }
+  const statuses = asArray(value.history.statuses).filter(
+    isThreadHistoryStatus,
+  );
+  if (!statuses.length) {
+    return unavailableThreadContext();
+  }
+  return {
+    root: {
+      status: rootStatus,
+      wasMentioned: value.root.wasMentioned === true,
+      ...(isChatHistoryMessage(value.root.message)
+        ? { message: value.root.message }
+        : {}),
+    },
+    history: {
+      messages: asArray(value.history.messages).filter(isChatHistoryMessage),
+      statuses,
+      ...(Array.isArray(value.history.errors) &&
+      value.history.errors.every((error) => typeof error === "string")
+        ? { errors: value.history.errors }
+        : {}),
+    },
+  };
+}
+
+function unavailableThreadContext(): ThreadContext {
+  return {
+    root: { status: "unavailable", wasMentioned: false },
+    history: { messages: [], statuses: ["unavailable"] },
+  };
+}
+
+function isThreadRootStatus(
+  value: unknown,
+): value is ThreadContext["root"]["status"] {
+  return ["available", "unavailable", "redacted", "undecryptable"].includes(
+    String(value),
+  );
+}
+
+function isThreadHistoryStatus(
+  value: unknown,
+): value is ThreadContext["history"]["statuses"][number] {
+  return [
+    "complete",
+    "unavailable",
+    "redacted",
+    "undecryptable",
+    "partial",
+    "truncated",
+  ].includes(String(value));
 }
 
 function asMessageRelationsResult(value: unknown): MessageRelationsResult {

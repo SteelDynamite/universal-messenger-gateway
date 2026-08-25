@@ -13,6 +13,8 @@ import type {
   GatewayEvent,
   MessageRelationsResult,
   PinnedMessageResolution,
+  ThreadContext,
+  ThreadContextQuery,
   TransportName,
 } from "./protocol.js";
 import {
@@ -73,6 +75,7 @@ export interface GatewayClient {
     timeoutMs?: number,
   ): Promise<void>;
   searchHistory(query: ChatHistoryQuery): Promise<ChatHistorySearchResult>;
+  resolveThreadContext(query: ThreadContextQuery): Promise<ThreadContext>;
   executeAgentOperation(
     request: AgentOperationRequest,
   ): Promise<AgentOperationResult>;
@@ -235,6 +238,18 @@ export class ManagerGatewayClient implements GatewayClient {
       throw new Error(`History search is not supported by ${query.transport}`);
     }
     return transport.searchHistory(query);
+  }
+
+  async resolveThreadContext(
+    query: ThreadContextQuery,
+  ): Promise<ThreadContext> {
+    const transport = this.options.manager.getTransport(query.transport);
+    if (!transport.resolveThreadContext) {
+      throw new Error(
+        `Thread context lookup is not supported by ${query.transport}`,
+      );
+    }
+    return transport.resolveThreadContext(query);
   }
 
   async leaveChat(
