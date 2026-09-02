@@ -155,6 +155,8 @@ export type InboundMessage = {
   messageId?: string;
   isGroupChat: boolean;
   wasMentioned: boolean;
+  /** Transport-provided structured mention targets, when available. */
+  mentionedUserIds?: string[];
   attachments?: MediaAttachment[];
   replyTo?: MessageReference;
   threadTo?: MessageReference;

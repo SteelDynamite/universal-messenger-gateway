@@ -1198,6 +1198,7 @@ class Sidecar:
                 "messageId": str(event.event_id) if event.event_id else None,
                 "isGroupChat": is_group_chat,
                 "wasMentioned": was_mentioned,
+                "mentionedUserIds": mentioned_user_ids(raw_content),
                 "attachments": [attachment] if attachment else None,
                 **message_references(room_id, raw_content),
             }
@@ -1884,10 +1885,17 @@ def extract_username(user_id: str) -> str:
     return re.sub(r":.*$", "", user_id.removeprefix("@"))
 
 
-def was_bot_mentioned(text: str, bot_user_id: str, content: dict[str, Any] | None = None) -> bool:
+def mentioned_user_ids(content: dict[str, Any] | None) -> list[str] | None:
     mentions = content.get("m.mentions") if isinstance(content, dict) else None
     user_ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
-    if isinstance(user_ids, list) and bot_user_id in user_ids:
+    if not isinstance(user_ids, list):
+        return None
+    return list(dict.fromkeys(user_id for user_id in user_ids if isinstance(user_id, str)))
+
+
+def was_bot_mentioned(text: str, bot_user_id: str, content: dict[str, Any] | None = None) -> bool:
+    user_ids = mentioned_user_ids(content)
+    if user_ids is not None and bot_user_id in user_ids:
         return True
     localpart = extract_username(bot_user_id)
     return bot_user_id in text or bool(localpart and re.search(rf"@{re.escape(localpart)}\b", text, re.I))

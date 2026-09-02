@@ -239,6 +239,7 @@ runMatrixMautrixSmoke(
       chatId: namedChannelId,
       isGroupChat: true,
       wasMentioned: true,
+      mentionedUserIds: [accountBUserId],
     });
 
     const plainMessageId = requiredMessageId(receivedPlain);

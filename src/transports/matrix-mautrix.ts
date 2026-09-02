@@ -641,7 +641,10 @@ function isInboundMessage(value: unknown): value is InboundMessage {
     typeof value.content === "string" &&
     typeof value.timestamp === "number" &&
     typeof value.isGroupChat === "boolean" &&
-    typeof value.wasMentioned === "boolean"
+    typeof value.wasMentioned === "boolean" &&
+    (value.mentionedUserIds === undefined ||
+      (Array.isArray(value.mentionedUserIds) &&
+        value.mentionedUserIds.every((userId) => typeof userId === "string")))
   );
 }
 

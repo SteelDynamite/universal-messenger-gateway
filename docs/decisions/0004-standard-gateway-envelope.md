@@ -15,7 +15,7 @@ Use a versionless TypeScript contract in `src/protocol.ts` for Phase 1:
 - transport names: `matrix`, `slack`, `discord`, `telegram`, `whatsapp`
 - message references: `{ transport, chatId, messageId }`
 
-`InboundMessage` carries the source extension fields plus optional `replyTo`, `threadTo`, and `attachments`.
+`InboundMessage` carries the source extension fields plus optional `replyTo`, `threadTo`, `attachments`, and transport-provided structured `mentionedUserIds`.
 `send_message` carries `{ transport, chatId, text }` plus optional `replyTo` and `threadTo`.
 `typing` carries `{ transport, chatId, userIds, observedAt }` and replaces prior state for that chat.
 `set_typing` carries `{ transport, chatId, typing, timeoutMs? }`.

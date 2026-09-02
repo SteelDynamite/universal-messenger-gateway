@@ -22,6 +22,7 @@ test("models inbound message events", () => {
       messageId: "$event",
       isGroupChat: true,
       wasMentioned: false,
+      mentionedUserIds: ["@other-bot:example.org"],
       attachments: [
         {
           mediaId: "mxc://example/photo",
@@ -51,6 +52,7 @@ test("models inbound message events", () => {
   } satisfies GatewayEvent;
 
   expect(event.message.content).toBe("hello");
+  expect(event.message.mentionedUserIds).toEqual(["@other-bot:example.org"]);
   expect(event.message.attachments?.[0]?.kind).toBe("image");
   expect(event.message.attachments?.[0]?.download?.status).toBe("downloaded");
 });
