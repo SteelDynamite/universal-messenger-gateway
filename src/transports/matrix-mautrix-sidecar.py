@@ -865,7 +865,7 @@ class Sidecar:
         next_cursor = format_history_cursor(page[-1]) if has_more and page else last_scanned_cursor if has_more else None
         if len(rooms) > 1 and has_more:
             partial = True
-            errors.append("all-chat search is partial; retry a specific chat")
+            errors.insert(0, "all-chat search is partial; retry a specific chat")
             has_more = False
             next_cursor = None
         return {
