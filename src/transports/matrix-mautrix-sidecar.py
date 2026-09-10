@@ -714,10 +714,10 @@ class Sidecar:
         if cursor:
             if direction == "forward":
                 lower_bound = cursor[0] if cursor[1] is not None else cursor[0] + 1
-                from_timestamp = max(from_timestamp or lower_bound, lower_bound)
+                from_timestamp = max(from_timestamp if from_timestamp is not None else lower_bound, lower_bound)
             else:
                 upper_bound = cursor[0] if cursor[1] is not None else cursor[0] - 1
-                to_timestamp = min(to_timestamp or upper_bound, upper_bound)
+                to_timestamp = min(to_timestamp if to_timestamp is not None else upper_bound, upper_bound)
         if not query and not message_id and from_timestamp is None and to_timestamp is None and not command.get("chatIds"):
             return {"messages": [], "nextCursor": None, "hasMore": False, "scannedChats": 0, "scannedMessages": 0}
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
