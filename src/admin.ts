@@ -1,4 +1,4 @@
-import { chmod, writeFile } from "node:fs/promises";
+import { chmod, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Writable } from "node:stream";
 import {
@@ -118,6 +118,10 @@ async function configureTransport(
 
   const config = await loadGatewayConfig(stateDir);
   const current = config.transports[transport] ?? {};
+  if (transport !== "matrix" && parsed.recoveryKeyFile) {
+    errorOutput.write("--recovery-key-file is only supported for matrix\n");
+    return 1;
+  }
   const {
     accessToken: _legacyAccessToken,
     recoveryKey: _legacyRecoveryKey,
@@ -126,20 +130,26 @@ async function configureTransport(
   void _legacyAccessToken;
   const settings = { ...restSettings };
   let matrixAccessToken: string | undefined;
-  let matrixRecoveryKey = typeof _legacyRecoveryKey === "string"
-    ? _legacyRecoveryKey
-    : undefined;
+  let matrixRecoveryKey =
+    typeof _legacyRecoveryKey === "string" ? _legacyRecoveryKey : undefined;
 
   for (const setting of parsed.settings) {
+    if (transport === "matrix" && setting.key === "recoveryKey") {
+      errorOutput.write("Matrix recovery keys must use --recovery-key-file\n");
+      return 1;
+    }
     if (transport === "matrix" && setting.key === "accessToken") {
       matrixAccessToken = String(setting.value);
       continue;
     }
-    if (transport === "matrix" && setting.key === "recoveryKey") {
-      matrixRecoveryKey = String(setting.value);
-      continue;
-    }
     settings[setting.key] = setting.value;
+  }
+  if (parsed.recoveryKeyFile) {
+    matrixRecoveryKey = (await readFile(parsed.recoveryKeyFile, "utf8")).trim();
+    if (!matrixRecoveryKey) {
+      errorOutput.write("Matrix recovery key file is empty\n");
+      return 1;
+    }
   }
 
   config.transports[transport] = compactTransportConfig({
@@ -196,9 +206,12 @@ async function setTransportEnabled(
 function parseConfigureFlags(
   args: string[],
   errorOutput: Writable,
-): { enabled?: boolean; settings: ParsedSetting[] } | undefined {
+):
+  | { enabled?: boolean; recoveryKeyFile?: string; settings: ParsedSetting[] }
+  | undefined {
   const settings: ParsedSetting[] = [];
   let enabled: boolean | undefined;
+  let recoveryKeyFile: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -209,6 +222,15 @@ function parseConfigureFlags(
     }
     if (arg === "--disable") {
       enabled = false;
+      continue;
+    }
+    if (arg === "--recovery-key-file") {
+      recoveryKeyFile = args[index + 1];
+      if (!recoveryKeyFile) {
+        errorOutput.write("Missing value after --recovery-key-file\n");
+        return undefined;
+      }
+      index += 1;
       continue;
     }
     if (arg === "--set") {
@@ -238,7 +260,11 @@ function parseConfigureFlags(
     return undefined;
   }
 
-  return { ...(enabled === undefined ? {} : { enabled }), settings };
+  return {
+    ...(enabled === undefined ? {} : { enabled }),
+    ...(recoveryKeyFile === undefined ? {} : { recoveryKeyFile }),
+    settings,
+  };
 }
 
 function parseSetting(
@@ -305,7 +331,7 @@ function adminUsage(): string {
   return [
     "Admin commands:",
     "  status",
-    "  configure <transport> [--enable|--disable] [--set key=value]...",
+    "  configure <transport> [--enable|--disable] [--set key=value]... [--recovery-key-file path]",
     "  connect <transport>",
     "  disconnect <transport>",
     "",

@@ -16,6 +16,8 @@ afterEach(async () => {
 
 test("configures transport settings", async () => {
   const stateDir = await tempStateDir();
+  const recoveryKeyFile = join(stateDir, "recovery-key-input.txt");
+  await writeFile(recoveryKeyFile, "recovery-secret\n");
 
   const exitCode = await runAdminCli({
     args: [
@@ -26,7 +28,8 @@ test("configures transport settings", async () => {
       "homeserverUrl=https://matrix.example",
       "--set=accessToken=secret",
       "--set=encryption=false",
-      "--set=recoveryKey=recovery-secret",
+      "--recovery-key-file",
+      recoveryKeyFile,
     ],
     output: collectOutput(),
     errorOutput: collectOutput(),
@@ -60,24 +63,58 @@ test("configures transport settings", async () => {
   ).toBe(0o600);
 });
 
+test("rejects inline Matrix recovery keys", async () => {
+  const errorOutput = collectOutput();
+
+  await expect(
+    runAdminCli({
+      args: ["configure", "matrix", "--set", "recoveryKey=secret"],
+      output: collectOutput(),
+      errorOutput,
+      env: {},
+      cwd: "/repo",
+    }),
+  ).resolves.toBe(1);
+
+  expect(errorOutput.text()).toContain("--recovery-key-file");
+});
+
 test("migrates legacy Matrix recovery keys before saving config", async () => {
   const stateDir = await tempStateDir();
-  await writeFile(join(stateDir, CONFIG_FILE_NAME), JSON.stringify({
-    transports: { matrix: { settings: { homeserverUrl: "https://matrix.example", recoveryKey: "legacy-key" } } },
-  }));
+  await writeFile(
+    join(stateDir, CONFIG_FILE_NAME),
+    JSON.stringify({
+      transports: {
+        matrix: {
+          settings: {
+            homeserverUrl: "https://matrix.example",
+            recoveryKey: "legacy-key",
+          },
+        },
+      },
+    }),
+  );
 
-  await expect(runAdminCli({
-    args: ["configure", "matrix", "--set", "encryption=true"],
-    output: collectOutput(),
-    errorOutput: collectOutput(),
-    env: { UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR: stateDir },
-    cwd: "/repo",
-  })).resolves.toBe(0);
+  await expect(
+    runAdminCli({
+      args: ["configure", "matrix", "--set", "encryption=true"],
+      output: collectOutput(),
+      errorOutput: collectOutput(),
+      env: { UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR: stateDir },
+      cwd: "/repo",
+    }),
+  ).resolves.toBe(0);
 
   await expect(readConfig(stateDir)).resolves.toEqual({
-    transports: { matrix: { settings: { homeserverUrl: "https://matrix.example", encryption: true } } },
+    transports: {
+      matrix: {
+        settings: { homeserverUrl: "https://matrix.example", encryption: true },
+      },
+    },
   });
-  await expect(readFile(join(stateDir, "matrix-recovery-key.txt"), "utf8")).resolves.toBe("legacy-key");
+  await expect(
+    readFile(join(stateDir, "matrix-recovery-key.txt"), "utf8"),
+  ).resolves.toBe("legacy-key");
 });
 
 test("prints status without setting values", async () => {
