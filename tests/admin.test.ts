@@ -63,6 +63,32 @@ test("configures transport settings", async () => {
   ).toBe(0o600);
 });
 
+test("keeps non-Matrix recoveryKey settings unchanged", async () => {
+  const stateDir = await tempStateDir();
+  await writeFile(
+    join(stateDir, CONFIG_FILE_NAME),
+    JSON.stringify({
+      transports: { slack: { settings: { recoveryKey: "not-a-matrix-key" } } },
+    }),
+  );
+
+  await expect(
+    runAdminCli({
+      args: ["configure", "slack", "--enable"],
+      output: collectOutput(),
+      errorOutput: collectOutput(),
+      env: { UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR: stateDir },
+      cwd: "/repo",
+    }),
+  ).resolves.toBe(0);
+
+  await expect(readConfig(stateDir)).resolves.toEqual({
+    transports: {
+      slack: { enabled: true, settings: { recoveryKey: "not-a-matrix-key" } },
+    },
+  });
+});
+
 test("rejects inline Matrix recovery keys", async () => {
   const errorOutput = collectOutput();
 

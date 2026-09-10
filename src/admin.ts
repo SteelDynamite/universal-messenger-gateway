@@ -1,4 +1,4 @@
-import { chmod, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Writable } from "node:stream";
 import {
@@ -122,16 +122,18 @@ async function configureTransport(
     errorOutput.write("--recovery-key-file is only supported for matrix\n");
     return 1;
   }
-  const {
-    accessToken: _legacyAccessToken,
-    recoveryKey: _legacyRecoveryKey,
-    ...restSettings
-  } = current.settings ?? {};
+  const { accessToken: _legacyAccessToken, ...restSettings } =
+    current.settings ?? {};
   void _legacyAccessToken;
-  const settings = { ...restSettings };
+  let settings = { ...restSettings };
   let matrixAccessToken: string | undefined;
-  let matrixRecoveryKey =
-    typeof _legacyRecoveryKey === "string" ? _legacyRecoveryKey : undefined;
+  let matrixRecoveryKey: string | undefined;
+  if (transport === "matrix") {
+    const { recoveryKey, ...withoutRecoveryKey } = settings;
+    matrixRecoveryKey =
+      typeof recoveryKey === "string" ? recoveryKey : undefined;
+    settings = withoutRecoveryKey;
+  }
 
   for (const setting of parsed.settings) {
     if (transport === "matrix" && setting.key === "recoveryKey") {
@@ -159,6 +161,7 @@ async function configureTransport(
   });
 
   if (matrixRecoveryKey !== undefined) {
+    await mkdir(stateDir, { recursive: true, mode: 0o700 });
     await writeSecret(
       join(stateDir, "matrix-recovery-key.txt"),
       matrixRecoveryKey,
