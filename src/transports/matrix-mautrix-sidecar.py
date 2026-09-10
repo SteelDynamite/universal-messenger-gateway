@@ -734,15 +734,19 @@ class Sidecar:
         scanned_messages = 0
         skipped_decryptions = 0
         timed_out = False
+        last_scanned_cursor: str | None = None
 
         async def collect_event(room_id: str, event: Any, include_media_download: bool = False) -> str:
-            nonlocal scanned_messages, skipped_decryptions
+            nonlocal scanned_messages, skipped_decryptions, last_scanned_cursor
             event_timestamp = history_event_timestamp(event)
             if to_timestamp is not None and event_timestamp > to_timestamp:
                 return "too_new"
             if from_timestamp is not None and event_timestamp < from_timestamp:
                 return "too_old"
             scanned_messages += 1
+            event_id = str(getattr(event, "event_id", "") or "")
+            if event_id:
+                last_scanned_cursor = format_history_cursor({"timestamp": event_timestamp, "messageId": event_id})
             message, skipped_decryption = await self.history_message(room_id, event, include_media_download)
             if skipped_decryption and is_recent_history_event(event):
                 skipped_decryptions += 1
@@ -854,8 +858,8 @@ class Sidecar:
         matches.sort(key=lambda item: (int(item.get("timestamp") or 0), str(item.get("messageId") or "")), reverse=direction == "backward")
         page = [without_score(message) for message in matches[:limit]]
         partial = timed_out or scanned_messages >= max_scanned_messages
-        has_more = len(matches) > len(page) or partial
-        next_cursor = format_history_cursor(page[-1]) if has_more and page else None
+        has_more = len(matches) > len(page) or (partial and last_scanned_cursor is not None)
+        next_cursor = format_history_cursor(page[-1]) if has_more and page else last_scanned_cursor if has_more else None
         return {
             "messages": page,
             "nextCursor": next_cursor,
