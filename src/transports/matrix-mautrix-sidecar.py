@@ -734,6 +734,7 @@ class Sidecar:
         scanned_messages = 0
         skipped_decryptions = 0
         timed_out = False
+        scan_truncated = False
         last_scanned_cursor: str | None = None
 
         async def collect_event(room_id: str, event: Any, include_media_download: bool = False) -> str:
@@ -762,7 +763,7 @@ class Sidecar:
             return "matched"
 
         async def scan_paginated(room_id: str, direction: PaginationDirection, token: str | None) -> None:
-            nonlocal timed_out
+            nonlocal timed_out, scan_truncated
             scanned_room_messages = 0
             room_token = token
             while room_token and scanned_room_messages < max_messages_per_chat and scanned_messages < max_scanned_messages:
@@ -797,6 +798,8 @@ class Sidecar:
                 if not next_token or next_token == room_token:
                     break
                 room_token = next_token
+            if room_token and (scanned_room_messages >= max_messages_per_chat or scanned_messages >= max_scanned_messages):
+                scan_truncated = True
 
         async def scan_date_range(room_id: str) -> bool:
             direction = "f" if from_timestamp is not None else "b"
@@ -857,7 +860,7 @@ class Sidecar:
             )
         matches.sort(key=lambda item: (int(item.get("timestamp") or 0), str(item.get("messageId") or "")), reverse=direction == "backward")
         page = [without_score(message) for message in matches[:limit]]
-        partial = timed_out or scanned_messages >= max_scanned_messages
+        partial = timed_out or scan_truncated or scanned_messages >= max_scanned_messages
         has_more = len(matches) > len(page) or (partial and last_scanned_cursor is not None)
         next_cursor = format_history_cursor(page[-1]) if has_more and page else last_scanned_cursor if has_more else None
         return {
