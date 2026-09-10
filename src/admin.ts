@@ -124,10 +124,11 @@ async function configureTransport(
     ...restSettings
   } = current.settings ?? {};
   void _legacyAccessToken;
-  void _legacyRecoveryKey;
   const settings = { ...restSettings };
   let matrixAccessToken: string | undefined;
-  let matrixRecoveryKey: string | undefined;
+  let matrixRecoveryKey = typeof _legacyRecoveryKey === "string"
+    ? _legacyRecoveryKey
+    : undefined;
 
   for (const setting of parsed.settings) {
     if (transport === "matrix" && setting.key === "accessToken") {
@@ -147,17 +148,17 @@ async function configureTransport(
     ...(Object.keys(settings).length > 0 ? { settings } : {}),
   });
 
+  if (matrixRecoveryKey !== undefined) {
+    await writeSecret(
+      join(stateDir, "matrix-recovery-key.txt"),
+      matrixRecoveryKey,
+    );
+  }
   await saveGatewayConfig(stateDir, config);
   if (matrixAccessToken !== undefined) {
     await writeSecret(
       join(stateDir, "matrix-access-token.txt"),
       matrixAccessToken,
-    );
-  }
-  if (matrixRecoveryKey !== undefined) {
-    await writeSecret(
-      join(stateDir, "matrix-recovery-key.txt"),
-      matrixRecoveryKey,
     );
   }
   output.write(`Configured ${transport} in ${stateDir}\n`);

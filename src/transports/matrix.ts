@@ -162,6 +162,11 @@ export function parseMatrixConfig(
     );
   }
   const accessToken = readAccessToken(stateDir);
+  if (typeof settings.recoveryKey === "string" && settings.recoveryKey) {
+    throw new MatrixConfigError(
+      "Matrix settings.recoveryKey is not supported; store the key in state/matrix-recovery-key.txt with chmod 600",
+    );
+  }
 
   if (typeof homeserverUrl !== "string" || !homeserverUrl) {
     throw new MatrixConfigError("Matrix settings.homeserverUrl is required");
@@ -193,9 +198,6 @@ export function parseMatrixConfig(
       : {}),
     ...(typeof settings.accountPassword === "string"
       ? { accountPassword: settings.accountPassword }
-      : {}),
-    ...(typeof settings.recoveryKey === "string"
-      ? { recoveryKey: settings.recoveryKey }
       : {}),
   };
 }

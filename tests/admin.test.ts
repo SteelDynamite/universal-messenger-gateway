@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
@@ -58,6 +58,26 @@ test("configures transport settings", async () => {
   expect(
     (await stat(join(stateDir, "matrix-recovery-key.txt"))).mode & 0o777,
   ).toBe(0o600);
+});
+
+test("migrates legacy Matrix recovery keys before saving config", async () => {
+  const stateDir = await tempStateDir();
+  await writeFile(join(stateDir, CONFIG_FILE_NAME), JSON.stringify({
+    transports: { matrix: { settings: { homeserverUrl: "https://matrix.example", recoveryKey: "legacy-key" } } },
+  }));
+
+  await expect(runAdminCli({
+    args: ["configure", "matrix", "--set", "encryption=true"],
+    output: collectOutput(),
+    errorOutput: collectOutput(),
+    env: { UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR: stateDir },
+    cwd: "/repo",
+  })).resolves.toBe(0);
+
+  await expect(readConfig(stateDir)).resolves.toEqual({
+    transports: { matrix: { settings: { homeserverUrl: "https://matrix.example", encryption: true } } },
+  });
+  await expect(readFile(join(stateDir, "matrix-recovery-key.txt"), "utf8")).resolves.toBe("legacy-key");
 });
 
 test("prints status without setting values", async () => {

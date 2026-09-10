@@ -61,6 +61,18 @@ test("rejects Matrix access tokens in config settings", () => {
   ).toThrow(MatrixConfigError);
 });
 
+test("rejects Matrix recovery keys in config settings", () => {
+  expect(() =>
+    parseMatrixConfig({
+      enabled: true,
+      settings: {
+        homeserverUrl: "https://matrix.example",
+        recoveryKey: "key",
+      },
+    }),
+  ).toThrow("settings.recoveryKey is not supported");
+});
+
 test("rejects Matrix config without homeserver or token", () => {
   expect(() => parseMatrixConfig({ enabled: true, settings: {} })).toThrow(
     MatrixConfigError,
