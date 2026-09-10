@@ -710,12 +710,12 @@ class Sidecar:
         from_timestamp = optional_int(command.get("fromTimestamp"))
         to_timestamp = optional_int(command.get("toTimestamp"))
         direction = "forward" if command.get("direction") == "forward" else "backward"
-        cursor_timestamp = timestamp_cursor(command.get("cursor"))
-        if cursor_timestamp is not None:
+        cursor = history_cursor(command.get("cursor"))
+        if cursor and cursor[1] is None:
             if direction == "forward":
-                from_timestamp = max(from_timestamp or cursor_timestamp + 1, cursor_timestamp + 1)
+                from_timestamp = max(from_timestamp or cursor[0] + 1, cursor[0] + 1)
             else:
-                to_timestamp = min(to_timestamp or cursor_timestamp - 1, cursor_timestamp - 1)
+                to_timestamp = min(to_timestamp or cursor[0] - 1, cursor[0] - 1)
         if not query and not message_id and from_timestamp is None and to_timestamp is None and not command.get("chatIds"):
             return {"messages": [], "nextCursor": None, "hasMore": False, "scannedChats": 0, "scannedMessages": 0}
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
@@ -745,6 +745,8 @@ class Sidecar:
             if skipped_decryption and is_recent_history_event(event):
                 skipped_decryptions += 1
             if not message:
+                return "skipped"
+            if cursor and not is_after_history_cursor(message, cursor, direction):
                 return "skipped"
             score = 1 if not query else search_score(message["content"], query, terms)
             if score <= 0:
@@ -847,11 +849,11 @@ class Sidecar:
                 PaginationDirection.FORWARD if direction == "forward" else PaginationDirection.BACKWARD,
                 token,
             )
-        matches.sort(key=lambda item: int(item.get("timestamp") or 0), reverse=direction == "backward")
+        matches.sort(key=lambda item: (int(item.get("timestamp") or 0), str(item.get("messageId") or "")), reverse=direction == "backward")
         page = [without_score(message) for message in matches[:limit]]
         partial = timed_out or scanned_messages >= max_scanned_messages
         has_more = len(matches) > len(page) or partial
-        next_cursor = str(int(page[-1]["timestamp"])) if has_more and page else None
+        next_cursor = format_history_cursor(page[-1]) if has_more and page else None
         return {
             "messages": page,
             "nextCursor": next_cursor,
@@ -1754,11 +1756,28 @@ def cursor_offset(value: Any) -> int:
     return int(value) if isinstance(value, str) and value.isdecimal() else 0
 
 
-def timestamp_cursor(value: Any) -> int | None:
+def history_cursor(value: Any) -> tuple[int, str | None] | None:
+    if not isinstance(value, str):
+        return None
+    timestamp, separator, message_id = value.partition(":")
     try:
-        return int(value) if isinstance(value, str) else None
+        return int(timestamp), message_id if separator and message_id else None
     except ValueError:
         return None
+
+
+def is_after_history_cursor(message: dict[str, Any], cursor: tuple[int, str | None], direction: str) -> bool:
+    timestamp, message_id = int(message.get("timestamp") or 0), str(message.get("messageId") or "")
+    cursor_timestamp, cursor_message_id = cursor
+    if cursor_message_id is None:
+        return True
+    key = timestamp, message_id
+    cursor_key = cursor_timestamp, cursor_message_id
+    return key > cursor_key if direction == "forward" else key < cursor_key
+
+
+def format_history_cursor(message: dict[str, Any]) -> str:
+    return f"{int(message.get('timestamp') or 0)}:{message.get('messageId') or ''}"
 
 
 def direct_room_ids(content: dict[str, Any]) -> set[str]:
