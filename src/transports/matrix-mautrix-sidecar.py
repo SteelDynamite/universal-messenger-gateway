@@ -744,8 +744,10 @@ class Sidecar:
                 return "too_new"
             if from_timestamp is not None and event_timestamp < from_timestamp:
                 return "too_old"
-            scanned_messages += 1
             event_id = str(getattr(event, "event_id", "") or "")
+            if cursor and event_id and not is_after_history_cursor({"timestamp": event_timestamp, "messageId": event_id}, cursor, direction):
+                return "before_cursor"
+            scanned_messages += 1
             if event_id:
                 last_scanned_cursor = format_history_cursor({"timestamp": event_timestamp, "messageId": event_id})
             message, skipped_decryption = await self.history_message(room_id, event, include_media_download)
@@ -754,7 +756,7 @@ class Sidecar:
             if not message:
                 return "skipped"
             if cursor and not is_after_history_cursor(message, cursor, direction):
-                return "skipped"
+                return "before_cursor"
             score = 1 if not query else search_score(message["content"], query, terms)
             if score <= 0:
                 return "skipped"
