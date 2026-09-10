@@ -26,6 +26,7 @@ test("configures transport settings", async () => {
       "homeserverUrl=https://matrix.example",
       "--set=accessToken=secret",
       "--set=encryption=false",
+      "--set=recoveryKey=recovery-secret",
     ],
     output: collectOutput(),
     errorOutput: collectOutput(),
@@ -50,6 +51,12 @@ test("configures transport settings", async () => {
   ).resolves.toBe("secret");
   expect(
     (await stat(join(stateDir, "matrix-access-token.txt"))).mode & 0o777,
+  ).toBe(0o600);
+  await expect(
+    readFile(join(stateDir, "matrix-recovery-key.txt"), "utf8"),
+  ).resolves.toBe("recovery-secret");
+  expect(
+    (await stat(join(stateDir, "matrix-recovery-key.txt"))).mode & 0o777,
   ).toBe(0o600);
 });
 
