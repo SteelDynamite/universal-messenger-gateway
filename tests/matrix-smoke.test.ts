@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { afterEach, expect, test } from "vitest";
@@ -830,7 +830,10 @@ async function connectAdminConfiguredParticipant(
     configureArgs.push("--set", `accountPassword=${account.accountPassword}`);
   }
   if (account.recoveryKey) {
-    configureArgs.push("--set", `recoveryKey=${account.recoveryKey}`);
+    await mkdir(stateDir, { recursive: true, mode: 0o700 });
+    const recoveryKeyFile = join(stateDir, "matrix-recovery-key.txt");
+    await writeFile(recoveryKeyFile, account.recoveryKey, { mode: 0o600 });
+    configureArgs.push("--recovery-key-file", recoveryKeyFile);
   }
 
   expect(
