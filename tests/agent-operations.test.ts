@@ -326,7 +326,7 @@ test("agent history and metadata operations use bounded normalized transport dat
       transport: "matrix",
       chatId: "!room",
       limit: 100,
-      cursor: "2",
+      cursor: "2:$event",
       direction: "backward",
     },
   });
@@ -363,7 +363,7 @@ test("agent history and metadata operations use bounded normalized transport dat
     {
       transport: "matrix",
       chatIds: ["!room"],
-      cursor: "2",
+      cursor: "2:$event",
       direction: "backward",
       limit: 100,
     },
@@ -398,9 +398,9 @@ test("agent operation schemas reject unknown and invalid input", async () => {
   await expect(
     client.executeAgentOperation({
       operation: "getMessages",
-      args: { transport: "matrix", chatId: "!room", cursor: "opaque" },
+      args: { transport: "matrix", chatId: "!room", cursor: "x".repeat(513) },
     }),
-  ).rejects.toThrow("cursor must be a non-negative timestamp");
+  ).rejects.toThrow("cursor must be at most 512 characters");
 });
 
 test("agent setTyping is a bounded write with generated metadata", async () => {

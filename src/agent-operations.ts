@@ -942,8 +942,8 @@ function cursorDirection(
   args: Record<string, unknown>,
 ): Pick<ChatHistoryQuery, "cursor" | "direction"> {
   const cursor = optionalString(args.cursor);
-  if (cursor && !/^(?:0|[1-9]\d*)$/.test(cursor)) {
-    throw new Error("cursor must be a non-negative timestamp");
+  if (cursor && cursor.length > 512) {
+    throw new Error("cursor must be at most 512 characters");
   }
   const direction = args.direction === "forward" ? "forward" : "backward";
   return { ...(cursor ? { cursor } : {}), direction };

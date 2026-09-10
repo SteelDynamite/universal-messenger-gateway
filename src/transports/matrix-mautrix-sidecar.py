@@ -711,11 +711,13 @@ class Sidecar:
         to_timestamp = optional_int(command.get("toTimestamp"))
         direction = "forward" if command.get("direction") == "forward" else "backward"
         cursor = history_cursor(command.get("cursor"))
-        if cursor and cursor[1] is None:
+        if cursor:
             if direction == "forward":
-                from_timestamp = max(from_timestamp or cursor[0] + 1, cursor[0] + 1)
+                lower_bound = cursor[0] if cursor[1] is not None else cursor[0] + 1
+                from_timestamp = max(from_timestamp or lower_bound, lower_bound)
             else:
-                to_timestamp = min(to_timestamp or cursor[0] - 1, cursor[0] - 1)
+                upper_bound = cursor[0] if cursor[1] is not None else cursor[0] - 1
+                to_timestamp = min(to_timestamp or upper_bound, upper_bound)
         if not query and not message_id and from_timestamp is None and to_timestamp is None and not command.get("chatIds"):
             return {"messages": [], "nextCursor": None, "hasMore": False, "scannedChats": 0, "scannedMessages": 0}
         self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
