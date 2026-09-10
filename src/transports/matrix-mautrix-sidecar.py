@@ -863,6 +863,11 @@ class Sidecar:
         partial = timed_out or scan_truncated or scanned_messages >= max_scanned_messages
         has_more = len(matches) > len(page) or (partial and last_scanned_cursor is not None)
         next_cursor = format_history_cursor(page[-1]) if has_more and page else last_scanned_cursor if has_more else None
+        if len(rooms) > 1 and has_more:
+            partial = True
+            errors.append("all-chat search is partial; retry a specific chat")
+            has_more = False
+            next_cursor = None
         return {
             "messages": page,
             "nextCursor": next_cursor,
