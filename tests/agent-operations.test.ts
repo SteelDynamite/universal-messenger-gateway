@@ -136,6 +136,10 @@ class AgentTransport implements TransportProvider {
       hasMore: true,
       scannedChats: 1,
       scannedMessages: 1,
+      skippedDecryption: 2,
+      stopReason: "scan_limit",
+      totalChats: 2,
+      completedChats: 1,
     };
   }
   async resolveThreadContext(query: ThreadContextQuery) {
@@ -267,7 +271,15 @@ test("agent history and metadata operations use bounded normalized transport dat
       args: { transport: "matrix", chatId: "!room", query: "hello" },
     }),
   ).resolves.toMatchObject({
-    data: { items: [{ messageId: "$event" }], nextCursor: "0", hasMore: true },
+    data: {
+      items: [{ messageId: "$event" }],
+      nextCursor: "0",
+      hasMore: true,
+      skippedDecryption: 2,
+      stopReason: "scan_limit",
+      totalChats: 2,
+      completedChats: 1,
+    },
   });
   await expect(
     client.executeAgentOperation({
@@ -326,7 +338,7 @@ test("agent history and metadata operations use bounded normalized transport dat
       transport: "matrix",
       chatId: "!room",
       limit: 100,
-      cursor: "2:$event",
+      cursor: "opaque-history-cursor",
       direction: "backward",
     },
   });
@@ -363,7 +375,7 @@ test("agent history and metadata operations use bounded normalized transport dat
     {
       transport: "matrix",
       chatIds: ["!room"],
-      cursor: "2:$event",
+      cursor: "opaque-history-cursor",
       direction: "backward",
       limit: 100,
     },

@@ -73,8 +73,11 @@ test("models chat history search results", () => {
     scannedChats: 1,
     scannedMessages: 42,
     skippedDecryption: 3,
-    partial: true,
-    errors: ["search returned partial results at deadline"],
+    nextCursor: "opaque-cursor",
+    hasMore: true,
+    stopReason: "deadline",
+    totalChats: 2,
+    completedChats: 1,
   } satisfies ChatHistorySearchResult;
   const query = {
     transport: "matrix",

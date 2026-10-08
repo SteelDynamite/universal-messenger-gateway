@@ -18,4 +18,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements-mautrix.txt
+      - run: npm run test:history
       - run: npm run build

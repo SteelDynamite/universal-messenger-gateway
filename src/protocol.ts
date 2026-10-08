@@ -54,8 +54,12 @@ export type ChatHistorySearchResult = {
   hasMore: boolean;
   scannedChats: number;
   scannedMessages: number;
+  /** Per-call skipped encrypted events, including older history. */
   skippedDecryption?: number;
-  partial?: boolean;
+  stopReason?: "exhausted" | "page_limit" | "scan_limit" | "deadline" | "error";
+  /** Room snapshot size and cumulative completed rooms across this cursor traversal. */
+  totalChats?: number;
+  completedChats?: number;
   errors?: string[];
 };
 

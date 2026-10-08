@@ -25,6 +25,7 @@
     "lint": "biome check src/ tests/",
     "lint:fix": "biome check --write src/ tests/",
     "test": "vitest run",
+    "test:history": "python3 -m unittest discover -s tests -p 'test_*.py'",
     "test:matrix-smoke": "vitest run tests/matrix-smoke.test.ts"
   },
   "devDependencies": {

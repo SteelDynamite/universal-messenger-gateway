@@ -15,6 +15,15 @@ npm test
 
 The full test suite skips live Matrix smoke tests unless `UMG_MATRIX_SMOKE=1` is set.
 
+History changes also require the actual Python sidecar tests (Python 3.11+). With the
+mautrix environment prepared per [Matrix smoke tests](matrix-smoke-tests.md):
+
+```sh
+PATH=/tmp/umg-mautrix-venv/bin:$PATH npm run test:history
+```
+
+CI installs `requirements-mautrix.txt` before running these network-free tests.
+
 ## Live Matrix Smoke
 
 Keep `tests/matrix-smoke.test.ts` current with transport/protocol behavior changes.

@@ -55,6 +55,19 @@ What carries over from the extension:
 - `src/transports/` — transport interface, manager, registry, Matrix adapter, and Matrix
   E2EE helpers. Other first-party adapters remain to be lifted.
 
+## History traversal
+
+Operation schemas and field meanings come from `AGENT_OPERATION_DESCRIPTORS`. History
+cursors retain native Matrix pagination positions, not timestamps: equal-timestamp events
+and zero-match scan pages must remain traversable. Keep search parameters unchanged when
+resuming. All-chat searches visit a snapshot of rooms sequentially, not in global time order.
+Normal page/scan limits are continuation, not service errors. Exhaustion covers accessible
+history only; decryption gaps remain separate. Timestamp-format cursors are unsupported.
+
+The sidecar reads raw `/messages` and zero-context responses because mautrix 0.21 rejects
+valid omitted terminal `end` tokens and empty context arrays. Python tests exercise this
+boundary without network access; live smoke verifies real homeserver response shapes.
+
 ## Where to look next
 
 - [Conventions](CONVENTIONS.md)

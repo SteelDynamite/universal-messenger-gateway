@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -22,6 +23,7 @@ from mautrix.client.state_store import FileStateStore
 from mautrix.crypto import OlmMachine
 from mautrix.crypto.attachments import decrypt_attachment
 from mautrix.crypto.store import PgCryptoStateStore, PgCryptoStore
+from mautrix.errors import MNotFound
 from mautrix.errors.crypto import DecryptionError, SessionNotFound
 from mautrix.types import (
     BaseFileInfo,
@@ -35,7 +37,6 @@ from mautrix.types import (
     MediaMessageEventContent,
     MessageEvent,
     MessageType,
-    PaginationDirection,
     ReactionEvent,
     RelationType,
     RelatesTo,
@@ -710,175 +711,164 @@ class Sidecar:
         from_timestamp = optional_int(command.get("fromTimestamp"))
         to_timestamp = optional_int(command.get("toTimestamp"))
         direction = "forward" if command.get("direction") == "forward" else "backward"
-        cursor = history_cursor(command.get("cursor"))
-        if cursor:
-            if direction == "forward":
-                lower_bound = cursor[0] if cursor[1] is not None else cursor[0] + 1
-                from_timestamp = max(from_timestamp if from_timestamp is not None else lower_bound, lower_bound)
-            else:
-                upper_bound = cursor[0] if cursor[1] is not None else cursor[0] - 1
-                to_timestamp = min(to_timestamp if to_timestamp is not None else upper_bound, upper_bound)
-        if not query and not message_id and from_timestamp is None and to_timestamp is None and not command.get("chatIds"):
-            return {"messages": [], "nextCursor": None, "hasMore": False, "scannedChats": 0, "scannedMessages": 0}
-        self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
         requested_rooms = command.get("chatIds")
-        rooms = [str(room) for room in requested_rooms if isinstance(room, str)] if isinstance(requested_rooms, list) else sorted(self.joined_rooms)
-        rooms = [room for room in rooms if room in self.joined_rooms]
+        if requested_rooms is not None and (not isinstance(requested_rooms, list)
+                or any(not isinstance(room, str) or not room for room in requested_rooms)):
+            raise ValueError("chatIds must be a list of room IDs")
+        scope = sorted(set(requested_rooms)) if isinstance(requested_rooms, list) else None
+        binding = hashlib.sha256(json.dumps(
+            [query, message_id, scope, direction, from_timestamp, to_timestamp],
+            separators=(",", ":"),
+        ).encode()).hexdigest()
+        state = decode_history_cursor(command["cursor"], binding) if command.get("cursor") is not None else {
+            "v": 1, "binding": binding, "rooms": None, "room": 0,
+            "token": None, "offset": 0, "initialized": False,
+        }
+        if scope is not None and state["rooms"] is not None and state["rooms"] != scope:
+            raise ValueError("History cursor rooms do not match chatIds")
         limit = bounded_int(command.get("limit"), 10, 1, 100)
         max_messages_per_chat = bounded_int(command.get("maxMessagesPerChat"), 100, 1, 1000)
-        max_scanned_messages = 2000
         deadline = time.monotonic() + bounded_int(command.get("deadlineMs"), 45_000, 1000, 55_000) / 1000
         terms = search_terms(query)
         matches: list[dict[str, Any]] = []
         errors: list[str] = []
+        scanned_chats: set[str] = set()
         scanned_messages = 0
         skipped_decryptions = 0
-        timed_out = False
-        scan_truncated = False
-        last_scanned_cursor: str | None = None
+        stop_reason = "exhausted"
+        room_id = "membership"
 
-        async def collect_event(room_id: str, event: Any, include_media_download: bool = False) -> str:
-            nonlocal scanned_messages, skipped_decryptions, last_scanned_cursor
-            event_timestamp = history_event_timestamp(event)
-            if to_timestamp is not None and event_timestamp > to_timestamp:
-                return "too_new"
-            if from_timestamp is not None and event_timestamp < from_timestamp:
-                return "too_old"
-            event_id = str(getattr(event, "event_id", "") or "")
-            if cursor and event_id and not is_after_history_cursor({"timestamp": event_timestamp, "messageId": event_id}, cursor, direction):
-                return "before_cursor"
+        async def collect_event(event: Any) -> None:
+            nonlocal scanned_messages, skipped_decryptions
+            # Count every inspected event, including state events and date exclusions.
             scanned_messages += 1
-            if event_id:
-                last_scanned_cursor = format_history_cursor({"timestamp": event_timestamp, "messageId": event_id})
-            message, skipped_decryption = await self.history_message(room_id, event, include_media_download)
-            if skipped_decryption and is_recent_history_event(event):
-                skipped_decryptions += 1
-            if not message:
-                return "skipped"
-            if cursor and not is_after_history_cursor(message, cursor, direction):
-                return "before_cursor"
-            score = 1 if not query else search_score(message["content"], query, terms)
-            if score <= 0:
-                return "skipped"
-            message["score"] = score
-            matches.append(message)
-            return "matched"
+            timestamp = history_event_timestamp(event)
+            # Matrix stream order is not guaranteed to follow sender timestamps.
+            if (from_timestamp is not None and timestamp < from_timestamp
+                    or to_timestamp is not None and timestamp > to_timestamp):
+                return
+            message, skipped = await self.history_message(room_id, event, bool(message_id))
+            skipped_decryptions += int(skipped)
+            if message and (not query or search_score(message["content"], query, terms) > 0):
+                matches.append(message)
 
-        async def scan_paginated(room_id: str, direction: PaginationDirection, token: str | None) -> None:
-            nonlocal timed_out, scan_truncated
-            scanned_room_messages = 0
-            room_token = token
-            while room_token and scanned_room_messages < max_messages_per_chat and scanned_messages < max_scanned_messages:
-                if time.monotonic() >= deadline:
-                    timed_out = True
-                    errors.append("search returned partial results at deadline")
-                    break
-                page_limit = min(50, max_messages_per_chat - scanned_room_messages, max_scanned_messages - scanned_messages)
-                try:
-                    page = await client.get_messages(room_id, direction, room_token, limit=page_limit)
-                except Exception as error:
-                    errors.append(f"{room_id}: {error}")
-                    break
-                events = paginated_events(page)
-                if not events:
-                    break
-                for event in events:
-                    if time.monotonic() >= deadline:
-                        timed_out = True
-                        errors.append("search returned partial results at deadline")
+        timeout = asyncio.timeout(max(0, deadline - time.monotonic()))
+        try:
+            # Covers membership, pagination, context, media and decryption awaits.
+            async with timeout:
+                self.joined_rooms = set(str(room) for room in await client.get_joined_rooms())
+                if state["rooms"] is None:
+                    state["rooms"] = scope if scope is not None else sorted(self.joined_rooms)
+                missing = set(state["rooms"]) - self.joined_rooms
+                if missing:
+                    raise RuntimeError(f"no longer joined to search rooms: {', '.join(sorted(missing))}")
+                while state["room"] < len(state["rooms"]):
+                    if len(matches) >= limit or scanned_messages >= 2000:
+                        stop_reason = "page_limit" if len(matches) >= limit else "scan_limit"
                         break
-                    status = await collect_event(room_id, event)
-                    if status in {"matched", "skipped"}:
-                        scanned_room_messages += 1
-                    if direction == PaginationDirection.BACKWARD and status == "too_old":
-                        return
-                    if direction == PaginationDirection.FORWARD and status == "too_new":
-                        return
-                if timed_out:
-                    break
-                next_token = paginated_end(page)
-                if not next_token or next_token == room_token:
-                    break
-                room_token = next_token
-            if room_token and (scanned_room_messages >= max_messages_per_chat or scanned_messages >= max_scanned_messages):
-                scan_truncated = True
-
-        async def scan_date_range(room_id: str) -> bool:
-            direction = "f" if from_timestamp is not None else "b"
-            timestamp = from_timestamp if from_timestamp is not None else to_timestamp
-            if timestamp is None:
-                return False
-            event_id = await self.timestamp_to_event_id(room_id, timestamp, direction)
-            if not event_id:
-                return False
-            try:
-                context = await client.get_event_context(room_id, event_id, limit=min(100, max_messages_per_chat))
-            except Exception as error:
-                errors.append(f"{room_id}: {error}")
-                return False
-            context_events = [
-                *list(getattr(context, "events_before", []) or []),
-                getattr(context, "event", None),
-                *list(getattr(context, "events_after", []) or []),
-            ]
-            context_events = [event for event in context_events if event is not None]
-            context_events.sort(key=history_event_timestamp, reverse=from_timestamp is None)
-            for event in context_events:
-                status = await collect_event(room_id, event)
-                if from_timestamp is not None and status == "too_new":
-                    return
-                if from_timestamp is None and status == "too_old":
-                    return
-            await scan_paginated(
-                room_id,
-                PaginationDirection.FORWARD if from_timestamp is not None else PaginationDirection.BACKWARD,
-                str(getattr(context, "end" if from_timestamp is not None else "start", "") or "") or None,
-            )
-            return True
-
-        token: str | None = None
-        for room_id in rooms:
-            if time.monotonic() >= deadline:
-                timed_out = True
-                errors.append("search returned partial results at deadline")
-                break
-            if scanned_messages >= max_scanned_messages:
-                errors.append(f"search stopped after scanning {max_scanned_messages} messages")
-                break
-            if message_id:
-                try:
-                    await collect_event(room_id, await client.get_event(room_id, message_id), True)
-                except Exception as error:
-                    errors.append(f"{room_id}: {error}")
-                continue
-            if from_timestamp is not None or to_timestamp is not None:
-                if await scan_date_range(room_id):
-                    continue
-            token = token or await self.current_sync_token()
-            await scan_paginated(
-                room_id,
-                PaginationDirection.FORWARD if direction == "forward" else PaginationDirection.BACKWARD,
-                token,
-            )
-        matches.sort(key=lambda item: (int(item.get("timestamp") or 0), str(item.get("messageId") or "")), reverse=direction == "backward")
-        page = [without_score(message) for message in matches[:limit]]
-        partial = timed_out or scan_truncated or scanned_messages >= max_scanned_messages
-        has_more = len(matches) > len(page) or (partial and last_scanned_cursor is not None)
-        next_cursor = format_history_cursor(page[-1]) if has_more and page else last_scanned_cursor if has_more else None
-        if len(rooms) > 1 and has_more:
-            partial = True
-            errors.insert(0, "all-chat search is partial; retry a specific chat")
-            has_more = False
-            next_cursor = None
+                    room_id = state["rooms"][state["room"]]
+                    scanned_room_messages = 0
+                    scanned_chats.add(room_id)
+                    while True:
+                        if time.monotonic() >= deadline:
+                            stop_reason = "deadline"
+                            break
+                        if len(matches) >= limit:
+                            stop_reason = "page_limit"
+                            break
+                        if scanned_room_messages >= max_messages_per_chat or scanned_messages >= 2000:
+                            stop_reason = "scan_limit"
+                            break
+                        if message_id:
+                            try:
+                                event = await client.get_event(room_id, message_id)
+                            except MNotFound:
+                                event = None
+                            if event is not None:
+                                await collect_event(event)
+                            room_done = True
+                        else:
+                            if not state["initialized"]:
+                                timestamp = from_timestamp if direction == "forward" else to_timestamp
+                                if timestamp is not None:
+                                    event_id = await self.timestamp_to_event_id(room_id, timestamp, "f" if direction == "forward" else "b")
+                                    if event_id:
+                                        # Some servers omit empty context arrays at limit=0, which
+                                        # mautrix's EventContext deserializer rejects. Only use the anchor/tokens.
+                                        context = await client.api.request(
+                                            Method.GET, MatrixPath.v3.rooms[room_id].context[event_id],
+                                            query_params={"limit": "0"}, metrics_method="history_context",
+                                        )
+                                        await collect_event(Event.deserialize(context["event"]))
+                                        scanned_room_messages += 1
+                                        state["token"] = context.get("end" if direction == "forward" else "start")
+                                        state["initialized"] = True
+                                        if not state["token"]:
+                                            state.update(room=state["room"] + 1, token=None, offset=0, initialized=False)
+                                            break
+                                        # The anchor is handled once; native tokens continue beyond it.
+                                        continue
+                                state["initialized"] = True
+                            # Fixed page size makes an in-page offset valid across different call budgets.
+                            # mautrix 0.21 requires `end`, but Matrix omits it on terminal pages.
+                            page = await client.api.request(
+                                Method.GET, MatrixPath.v3.rooms[room_id].messages,
+                                query_params=compact({"from": state["token"], "dir": "f" if direction == "forward" else "b", "limit": "50"}),
+                                metrics_method="history_messages",
+                            )
+                            events = [Event.deserialize(event) for event in page["chunk"]]
+                            start = page.get("start")
+                            if state["token"] is None and events:
+                                if not isinstance(start, str) or not start:
+                                    raise RuntimeError("Matrix history page has no start token")
+                                state["token"] = start
+                            if state["offset"] > len(events):
+                                raise RuntimeError("Matrix history page changed before cursor offset")
+                            while state["offset"] < len(events):
+                                if time.monotonic() >= deadline:
+                                    stop_reason = "deadline"
+                                    break
+                                if len(matches) >= limit:
+                                    stop_reason = "page_limit"
+                                    break
+                                if scanned_room_messages >= max_messages_per_chat or scanned_messages >= 2000:
+                                    stop_reason = "scan_limit"
+                                    break
+                                await collect_event(events[state["offset"]])
+                                # Advance only after successful processing; interrupted events remain retryable.
+                                state["offset"] += 1
+                                scanned_room_messages += 1
+                            if stop_reason != "exhausted":
+                                break
+                            end = page.get("end")
+                            room_done = not end or end == state["token"]
+                            if not room_done:
+                                state["token"] = end
+                                state["offset"] = 0
+                        if room_done:
+                            state.update(room=state["room"] + 1, token=None, offset=0, initialized=False)
+                            break
+                    if stop_reason != "exhausted":
+                        break
+        except TimeoutError as error:
+            stop_reason = "deadline" if timeout.expired() else "error"
+            if stop_reason == "error":
+                errors.append(f"{room_id}: {error or 'Matrix request timed out'}")
+        except Exception as error:
+            stop_reason = "error"
+            errors.append(f"{room_id}: {error}")
+        has_more = stop_reason != "exhausted"
         return {
-            "messages": page,
-            "nextCursor": next_cursor,
+            "messages": matches,
+            "nextCursor": base64.urlsafe_b64encode(json.dumps(state, separators=(",", ":")).encode()).decode() if has_more else None,
             "hasMore": has_more,
-            "scannedChats": len(rooms),
+            "scannedChats": len(scanned_chats),
             "scannedMessages": scanned_messages,
             "skippedDecryption": skipped_decryptions,
-            "partial": partial,
-            **({"errors": list(dict.fromkeys(errors))[:10]} if errors else {}),
+            "stopReason": stop_reason,
+            "totalChats": len(state["rooms"] or []),
+            "completedChats": state["room"],
+            **({"errors": errors} if errors else {}),
         }
 
     async def resolve_thread_context(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -1068,16 +1058,6 @@ class Sidecar:
             return None
         event_id = response.get("event_id") if isinstance(response, dict) else None
         return event_id if isinstance(event_id, str) and event_id else None
-
-    async def current_sync_token(self) -> str:
-        client = require_client(self.client)
-        # Do not call client.sync here; the background sync loop owns /sync.
-        for _ in range(20):
-            token = await client.sync_store.get_next_batch()
-            if isinstance(token, str) and token:
-                return token
-            await asyncio.sleep(0.1)
-        raise RuntimeError("Matrix sync has not produced a pagination token yet")
 
     async def history_message(self, room_id: str, event: Any, include_media_download: bool = False) -> tuple[dict[str, Any] | None, bool]:
         event, skipped_decryption = await self.decrypt_history_event(event)
@@ -1671,27 +1651,6 @@ def relation_summary(event: dict[str, Any]) -> dict[str, Any] | None:
     )
 
 
-def paginated_events(page: Any) -> list[Any]:
-    events = getattr(page, "events", None)
-    if isinstance(events, list):
-        return events
-    chunk = getattr(page, "chunk", None)
-    if isinstance(chunk, list):
-        return chunk
-    if isinstance(page, (list, tuple)) and len(page) >= 3 and isinstance(page[2], list):
-        return page[2]
-    return []
-
-
-def paginated_end(page: Any) -> str | None:
-    value = getattr(page, "end", None)
-    if isinstance(value, str):
-        return value
-    if isinstance(page, (list, tuple)) and len(page) >= 2 and isinstance(page[1], str):
-        return page[1]
-    return None
-
-
 def optional_int(value: Any) -> int | None:
     return value if isinstance(value, int) else None
 
@@ -1758,10 +1717,6 @@ def search_score(text: str, query: str, terms: list[str]) -> int:
     return score
 
 
-def without_score(message: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in message.items() if key != "score"}
-
-
 def bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     if not isinstance(value, int):
         return default
@@ -1772,28 +1727,31 @@ def cursor_offset(value: Any) -> int:
     return int(value) if isinstance(value, str) and value.isdecimal() else 0
 
 
-def history_cursor(value: Any) -> tuple[int, str | None] | None:
-    if not isinstance(value, str):
-        return None
-    timestamp, separator, message_id = value.partition(":")
+def decode_history_cursor(value: Any, binding: str) -> dict[str, Any]:
     try:
-        return int(timestamp), message_id if separator and message_id else None
-    except ValueError:
-        return None
-
-
-def is_after_history_cursor(message: dict[str, Any], cursor: tuple[int, str | None], direction: str) -> bool:
-    timestamp, message_id = int(message.get("timestamp") or 0), str(message.get("messageId") or "")
-    cursor_timestamp, cursor_message_id = cursor
-    if cursor_message_id is None:
-        return True
-    key = timestamp, message_id
-    cursor_key = cursor_timestamp, cursor_message_id
-    return key > cursor_key if direction == "forward" else key < cursor_key
-
-
-def format_history_cursor(message: dict[str, Any]) -> str:
-    return f"{int(message.get('timestamp') or 0)}:{message.get('messageId') or ''}"
+        if not isinstance(value, str) or not value or len(value) > 1_000_000:
+            raise ValueError()
+        state = json.loads(base64.b64decode(value, altchars=b"-_", validate=True))
+        if not isinstance(state, dict) or set(state) != {"v", "binding", "rooms", "room", "token", "offset", "initialized"}:
+            raise ValueError()
+        rooms = state["rooms"]
+        if (type(state["v"]) is not int or state["v"] != 1 or state["binding"] != binding
+                or type(state["room"]) is not int or state["room"] < 0
+                or type(state["offset"]) is not int or not 0 <= state["offset"] <= 50
+                or type(state["initialized"]) is not bool
+                or state["token"] is not None and (not isinstance(state["token"], str) or not state["token"])):
+            raise ValueError()
+        if rooms is not None and (not isinstance(rooms, list)
+                or any(not isinstance(room, str) or not room for room in rooms)
+                or len(set(rooms)) != len(rooms) or state["room"] > len(rooms)):
+            raise ValueError()
+        if (rooms is None or not state["initialized"] or state["room"] == len(rooms)) and (state["offset"] or state["token"] is not None):
+            raise ValueError()
+        if rooms is None and (state["room"] or state["initialized"]):
+            raise ValueError()
+        return state
+    except (ValueError, TypeError, KeyError):
+        raise ValueError("Invalid history cursor or search parameters changed") from None
 
 
 def direct_room_ids(content: dict[str, Any]) -> set[str]:
@@ -1821,11 +1779,6 @@ def classify_matrix_chat(
 
 def matrix_permalink(room_id: str, event_id: str) -> str:
     return f"https://matrix.to/#/{quote(room_id, safe='')}/{quote(event_id, safe='')}"
-
-
-def is_recent_history_event(event: Any) -> bool:
-    timestamp = getattr(event, "timestamp", None)
-    return isinstance(timestamp, int) and timestamp >= now_ms() - 24 * 60 * 60 * 1000
 
 
 def media_attachment(content: dict[str, Any]) -> dict[str, Any] | None:

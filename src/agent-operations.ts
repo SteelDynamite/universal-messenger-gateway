@@ -3,6 +3,7 @@ import type { GatewayClient } from "./gateway-client.js";
 import type {
   ChatHistoryMessage,
   ChatHistoryQuery,
+  ChatHistorySearchResult,
   MediaAttachment,
   MessageReference,
   PinnedMessageResolution,
@@ -242,7 +243,7 @@ export const AGENT_OPERATION_DESCRIPTORS = [
     defaults: { limit: 10 },
     help: {
       summary:
-        "Search source-of-truth history in one chat, or set allChats true intentionally.",
+        "Search source-of-truth history in one chat, or allChats true (rooms traversed sequentially, not globally time-sorted). Follow nextCursor with unchanged query, scope, dates and direction while hasMore, even with no matches. page_limit/scan_limit are normal pagination; deadline/error are interruptions. exhausted means accessible history was traversed, not that every event decrypted. Sum scannedMessages/skippedDecryption across pages; completedChats is cumulative.",
       examples: [
         { transport: "matrix", chatId: "!room:example.org", query: "deploy" },
         { transport: "matrix", allChats: true, query: "deploy" },
@@ -368,7 +369,8 @@ export const AGENT_OPERATION_DESCRIPTORS = [
     ),
     defaults: { limit: 25 },
     help: {
-      summary: "Get recent bounded source-of-truth messages from one chat.",
+      summary:
+        "Get bounded source-of-truth messages from one chat. Follow nextCursor with unchanged scope, dates and direction while hasMore, even on empty pages. See stopReason and skippedDecryption for coverage limits.",
       examples: [
         { transport: "matrix", chatId: "!room:example.org", limit: 25 },
       ],
@@ -850,8 +852,31 @@ function historyResultSchema(): JsonSchema {
     properties: {
       ...pagedResultSchema.properties,
       scannedChats: { type: "integer" },
-      scannedMessages: { type: "integer" },
-      partial: { type: "boolean" },
+      scannedMessages: {
+        type: "integer",
+        description:
+          "Events inspected this call, including non-message events.",
+      },
+      skippedDecryption: {
+        type: "integer",
+        description: "Encrypted events skipped this call; sum across pages.",
+      },
+      stopReason: {
+        type: "string",
+        enum: ["exhausted", "page_limit", "scan_limit", "deadline", "error"],
+        description:
+          "Normal pagination limits are not service failures. Exhausted does not imply zero decryption gaps.",
+      },
+      totalChats: {
+        type: "integer",
+        description:
+          "Rooms in this traversal snapshot; 0 before membership discovery succeeds.",
+      },
+      completedChats: {
+        type: "integer",
+        description: "Cumulative rooms fully traversed, not a per-call count.",
+      },
+      errors: { type: "array", items: { type: "string" } },
     },
   };
 }
@@ -859,15 +884,9 @@ function historyResultSchema(): JsonSchema {
 async function history(
   client: GatewayClient,
   query: ChatHistoryQuery,
-): Promise<{
-  items: ChatHistoryMessage[];
-  nextCursor: string | null;
-  hasMore: boolean;
-  scannedChats: number;
-  scannedMessages: number;
-  partial?: boolean;
-  errors?: string[];
-}> {
+): Promise<
+  Omit<ChatHistorySearchResult, "messages"> & { items: ChatHistoryMessage[] }
+> {
   const result = await client.searchHistory(query);
   return {
     items: result.messages.slice(0, query.limit ?? 25).map(conciseMessage),
@@ -875,7 +894,18 @@ async function history(
     hasMore: result.hasMore,
     scannedChats: result.scannedChats,
     scannedMessages: result.scannedMessages,
-    ...(result.partial === undefined ? {} : { partial: result.partial }),
+    ...(result.stopReason === undefined
+      ? {}
+      : { stopReason: result.stopReason }),
+    ...(result.skippedDecryption === undefined
+      ? {}
+      : { skippedDecryption: result.skippedDecryption }),
+    ...(result.totalChats === undefined
+      ? {}
+      : { totalChats: result.totalChats }),
+    ...(result.completedChats === undefined
+      ? {}
+      : { completedChats: result.completedChats }),
     ...(result.errors?.length ? { errors: result.errors.slice(0, 10) } : {}),
   };
 }

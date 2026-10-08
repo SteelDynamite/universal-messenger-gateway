@@ -505,17 +505,52 @@ runMatrixMautrixSmoke(
         limit: 1,
       }),
     ).toMatchObject({ messages: [{ content: encryptedMessage }] });
-    expect(
-      await accountB.provider.searchHistory({
+    const datedHistory = await accountB.provider.searchHistory({
+      transport: "matrix",
+      query: encryptedMessage,
+      chatIds: [encryptedRoomId],
+      fromTimestamp: encryptedAtB.timestamp - 60_000,
+      toTimestamp: encryptedAtB.timestamp + 60_000,
+      limit: 1,
+      maxMessagesPerChat: 100,
+    });
+    expect(datedHistory, JSON.stringify(datedHistory)).toMatchObject({
+      messages: [{ content: encryptedMessage }],
+    });
+
+    // Zero-match pages must advance with native Matrix tokens, not stop at a scan cap.
+    let historyCursor: string | undefined;
+    let historyExhausted = false;
+    let scannedHistory = 0;
+    for (let page = 0; page < 100; page += 1) {
+      const result = await accountB.provider.searchHistory({
         transport: "matrix",
-        query: encryptedMessage,
+        query: `nonexistent-history-${runId}`,
         chatIds: [encryptedRoomId],
-        fromTimestamp: encryptedAtB.timestamp - 60_000,
-        toTimestamp: encryptedAtB.timestamp + 60_000,
-        limit: 1,
-        maxMessagesPerChat: 100,
-      }),
-    ).toMatchObject({ messages: [{ content: encryptedMessage }] });
+        maxMessagesPerChat: 1,
+        ...(historyCursor ? { cursor: historyCursor } : {}),
+      });
+      expect(result.messages).toEqual([]);
+      expect(result.errors).toBeUndefined();
+      expect(result.skippedDecryption).toBeTypeOf("number");
+      scannedHistory += result.scannedMessages;
+      if (!result.hasMore) {
+        expect(result).toMatchObject({
+          stopReason: "exhausted",
+          completedChats: 1,
+          totalChats: 1,
+          nextCursor: null,
+        });
+        historyExhausted = true;
+        break;
+      }
+      expect(result.stopReason).toBe("scan_limit");
+      expect(result.nextCursor).toBeTypeOf("string");
+      expect(result.nextCursor).not.toBe(historyCursor);
+      historyCursor = result.nextCursor ?? undefined;
+    }
+    expect(historyExhausted).toBe(true);
+    expect(scannedHistory).toBeGreaterThan(1);
 
     const replyMessage = `umg mautrix reply ${runId}`;
     const receivedReplyByA = waitForMessage(

@@ -712,7 +712,21 @@ function asChatHistorySearchResult(value: unknown): ChatHistorySearchResult {
     ...(typeof value.skippedDecryption === "number"
       ? { skippedDecryption: value.skippedDecryption }
       : {}),
-    ...(typeof value.partial === "boolean" ? { partial: value.partial } : {}),
+    ...(["exhausted", "page_limit", "scan_limit", "deadline", "error"].includes(
+      value.stopReason as string,
+    )
+      ? {
+          stopReason: value.stopReason as NonNullable<
+            ChatHistorySearchResult["stopReason"]
+          >,
+        }
+      : {}),
+    ...(typeof value.totalChats === "number"
+      ? { totalChats: value.totalChats }
+      : {}),
+    ...(typeof value.completedChats === "number"
+      ? { completedChats: value.completedChats }
+      : {}),
     ...(Array.isArray(value.errors) &&
     value.errors.every((error) => typeof error === "string")
       ? { errors: value.errors }
