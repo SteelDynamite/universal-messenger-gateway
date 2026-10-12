@@ -122,14 +122,18 @@ async function configureTransport(
     errorOutput.write("--recovery-key-file is only supported for matrix\n");
     return 1;
   }
-  const { accessToken: _legacyAccessToken, ...restSettings } =
-    current.settings ?? {};
-  void _legacyAccessToken;
-  let settings = { ...restSettings };
+  let settings = { ...current.settings };
   let matrixAccessToken: string | undefined;
   let matrixRecoveryKey: string | undefined;
   if (transport === "matrix") {
-    const { recoveryKey, ...withoutRecoveryKey } = settings;
+    const {
+      recoveryKey,
+      accessToken: _legacyAccessToken,
+      accountPassword: _accountPassword,
+      ...withoutRecoveryKey
+    } = settings;
+    void _legacyAccessToken;
+    void _accountPassword;
     matrixRecoveryKey =
       typeof recoveryKey === "string" ? recoveryKey : undefined;
     settings = withoutRecoveryKey;
@@ -157,7 +161,7 @@ async function configureTransport(
   config.transports[transport] = compactTransportConfig({
     ...current,
     ...(parsed.enabled === undefined ? {} : { enabled: parsed.enabled }),
-    ...(Object.keys(settings).length > 0 ? { settings } : {}),
+    settings,
   });
 
   if (matrixRecoveryKey !== undefined) {

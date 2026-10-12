@@ -63,12 +63,50 @@ test("configures transport settings", async () => {
   ).toBe(0o600);
 });
 
-test("keeps non-Matrix recoveryKey settings unchanged", async () => {
+test.each([{}, { homeserverUrl: "https://matrix.example" }])(
+  "strips obsolete Matrix account passwords while retaining other settings: %j",
+  async (settings) => {
+    const stateDir = await tempStateDir();
+    await writeFile(
+      join(stateDir, CONFIG_FILE_NAME),
+      JSON.stringify({
+        transports: {
+          matrix: { settings: { ...settings, accountPassword: "secret" } },
+        },
+      }),
+    );
+    expect(
+      await runAdminCli({
+        args: ["configure", "matrix", "--enable"],
+        output: collectOutput(),
+        errorOutput: collectOutput(),
+        env: { UNIVERSAL_MESSENGER_GATEWAY_STATE_DIR: stateDir },
+      }),
+    ).toBe(0);
+    expect(await readConfig(stateDir)).toEqual({
+      transports: {
+        matrix: {
+          enabled: true,
+          ...(Object.keys(settings).length ? { settings } : {}),
+        },
+      },
+    });
+  },
+);
+
+test("keeps non-Matrix credentials unchanged", async () => {
   const stateDir = await tempStateDir();
   await writeFile(
     join(stateDir, CONFIG_FILE_NAME),
     JSON.stringify({
-      transports: { slack: { settings: { recoveryKey: "not-a-matrix-key" } } },
+      transports: {
+        slack: {
+          settings: {
+            recoveryKey: "not-a-matrix-key",
+            accessToken: "slack-token",
+          },
+        },
+      },
     }),
   );
 
@@ -84,7 +122,13 @@ test("keeps non-Matrix recoveryKey settings unchanged", async () => {
 
   await expect(readConfig(stateDir)).resolves.toEqual({
     transports: {
-      slack: { enabled: true, settings: { recoveryKey: "not-a-matrix-key" } },
+      slack: {
+        enabled: true,
+        settings: {
+          recoveryKey: "not-a-matrix-key",
+          accessToken: "slack-token",
+        },
+      },
     },
   });
 });

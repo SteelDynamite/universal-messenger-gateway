@@ -309,6 +309,42 @@ test("default Matrix factory can select the mautrix sidecar implementation", asy
   );
 });
 
+test("sidecar exit during a blocked write rejects without unhandled errors", async () => {
+  const stateDir = await tempStateDir();
+  const sidecarPath = join(stateDir, "exit-during-write.mjs");
+  await writeFile(
+    sidecarPath,
+    `import { createInterface } from "node:readline";
+const input = createInterface({ input: process.stdin });
+input.once("line", (line) => {
+  const command = JSON.parse(line);
+  input.close();
+  process.stdout.write(JSON.stringify({ id: command.id, ok: true }) + "\\n");
+  process.stdin.once("data", () => process.exit(0));
+});
+`,
+  );
+  const provider = new MautrixMatrixProvider(
+    {
+      homeserverUrl: "https://matrix.example",
+      accessToken: "token",
+      pythonPath: process.execPath,
+      sidecarPath,
+    },
+    stateDir,
+  );
+  provider.onError(() => {});
+  try {
+    await provider.connect();
+    await expect(
+      provider.sendFile("!room", "x".repeat(4 * 1024 * 1024)),
+    ).rejects.toThrow();
+    await waitFor(() => !provider.isConnected);
+  } finally {
+    await provider.disconnect();
+  }
+});
+
 test("parses mautrix settings with token from state file", async () => {
   const stateDir = await tempStateDir();
   await writeFile(join(stateDir, "matrix-access-token.txt"), "token\n");

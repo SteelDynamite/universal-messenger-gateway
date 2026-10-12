@@ -108,6 +108,9 @@ export class MautrixMatrixProvider implements TransportProvider {
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.#process = child;
+    child.stdin.on("error", (error) => {
+      if (this.#process === child) this.rejectPending(error);
+    });
     child.stderr.on("data", (chunk) => {
       if (
         process.env.UMG_MAUTRIX_DEBUG === "1" ||
@@ -117,6 +120,7 @@ export class MautrixMatrixProvider implements TransportProvider {
       }
     });
     child.on("error", (error) => {
+      if (this.#process !== child) return;
       this.rejectPending(error);
       if (this.#isConnected) {
         this.#errorHandler?.(error);
@@ -127,6 +131,7 @@ export class MautrixMatrixProvider implements TransportProvider {
       }
     });
     child.on("exit", (code, signal) => {
+      if (this.#process !== child) return;
       const error = new Error(
         `mautrix sidecar exited${code === null ? "" : ` with code ${code}`}${signal ? ` via ${signal}` : ""}`,
       );
@@ -140,6 +145,7 @@ export class MautrixMatrixProvider implements TransportProvider {
       }
     });
     this.#readerDone = this.readSidecar(child).catch((error: unknown) => {
+      if (this.#process !== child) return;
       this.rejectPending(asError(error));
       this.#errorHandler?.(error);
     });
@@ -450,10 +456,15 @@ export class MautrixMatrixProvider implements TransportProvider {
     }, timeoutMs);
 
     try {
-      await writeJsonLine(this.#process.stdin, { id, type, ...payload });
-      return await promise;
+      // Observe both failures immediately: exit can reject the response while stdin is blocked.
+      const [, result] = await Promise.all([
+        writeJsonLine(this.#process.stdin, { id, type, ...payload }),
+        promise,
+      ]);
+      return result;
     } finally {
       clearTimeout(timer);
+      this.#pending.delete(id);
     }
   }
 
@@ -461,6 +472,7 @@ export class MautrixMatrixProvider implements TransportProvider {
     child: ChildProcessWithoutNullStreams,
   ): Promise<void> {
     for await (const value of readJsonLines(child.stdout)) {
+      if (this.#process !== child) return;
       this.handleSidecarEnvelope(value);
     }
   }

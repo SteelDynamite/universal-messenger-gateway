@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type {
   GatewayEvent,
   InboundMessage,
@@ -1044,6 +1044,29 @@ async function cleanupJoinedRooms(
   );
 }
 
+test("account cleanup leaves only test-owned joined or invited rooms", async () => {
+  const leaveRoom = vi
+    .spyOn(MatrixControlClient.prototype, "leaveRoom")
+    .mockResolvedValue();
+  vi.spyOn(MatrixControlClient.prototype, "syncNow").mockResolvedValue({
+    rooms: {
+      join: { "!owned-joined": {}, "!unrelated-joined": {} },
+      invite: { "!owned-invited": {}, "!unrelated-invited": {} },
+    },
+  });
+  roomsToLeave.push("!owned-joined", "!owned-invited", "!absent");
+  try {
+    await cleanupSmokeAccount("https://matrix.example", "token");
+    expect(leaveRoom.mock.calls).toEqual([
+      ["!owned-joined", "mautrix smoke cleanup"],
+      ["!owned-invited", "mautrix smoke cleanup"],
+    ]);
+  } finally {
+    vi.restoreAllMocks();
+    roomsToLeave.length = 0;
+  }
+});
+
 async function cleanupSmokeAccounts(config: SmokeConfig): Promise<void> {
   await Promise.all([
     cleanupSmokeAccount(config.homeserverUrl, config.accountA.accessToken),
@@ -1062,9 +1085,14 @@ async function cleanupSmokeAccount(
   const invitedRoomIds = Object.keys(sync.rooms?.invite ?? {});
 
   await Promise.all(
-    [...joinedRoomIds, ...invitedRoomIds].map((roomId) =>
-      client.leaveRoom(roomId, "mautrix smoke cleanup").catch(() => {}),
-    ),
+    roomsToLeave
+      .filter(
+        (roomId) =>
+          joinedRoomIds.includes(roomId) || invitedRoomIds.includes(roomId),
+      )
+      .map((roomId) =>
+        client.leaveRoom(roomId, "mautrix smoke cleanup").catch(() => {}),
+      ),
   );
 }
 

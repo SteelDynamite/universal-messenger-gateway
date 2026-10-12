@@ -21,6 +21,7 @@ import {
   cliTransportRegistry,
   createConfiguredTransportList,
 } from "./runtime.js";
+import { STATE_DIR_ENV } from "./state.js";
 import type {
   TransportChat,
   TransportHealth,
@@ -362,6 +363,9 @@ export class ManagerGatewayClient implements GatewayClient {
       args,
       output,
       errorOutput,
+      ...(this.options.stateDir === undefined
+        ? {}
+        : { env: { ...process.env, [STATE_DIR_ENV]: this.options.stateDir } }),
       ...(command.type === "status"
         ? { registry: cliTransportRegistry() }
         : {}),

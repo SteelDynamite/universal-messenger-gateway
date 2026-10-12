@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type {
   GatewayEvent,
   InboundMessage,
@@ -76,6 +76,34 @@ afterEach(async () => {
   roomsToLeave.length = 0;
 });
 
+test("account cleanup leaves only test-owned joined or invited rooms", async () => {
+  const leaveRoom = vi
+    .spyOn(MatrixControlClient.prototype, "leaveRoom")
+    .mockResolvedValue();
+  vi.spyOn(MatrixControlClient.prototype, "getUserId").mockResolvedValue(
+    "@smoke:example",
+  );
+  vi.spyOn(MatrixControlClient.prototype, "syncNow").mockResolvedValue({
+    rooms: {
+      join: { "!owned-joined": {}, "!unrelated-joined": {} },
+      invite: { "!owned-invited": {}, "!unrelated-invited": {} },
+    },
+  });
+  roomsToLeave.push("!owned-joined", "!owned-invited", "!absent");
+  try {
+    await cleanupSmokeAccount("https://matrix.example", {
+      accessToken: "token",
+    });
+    expect(leaveRoom.mock.calls).toEqual([
+      ["!owned-joined", "matrix smoke cleanup"],
+      ["!owned-invited", "matrix smoke cleanup"],
+    ]);
+  } finally {
+    vi.restoreAllMocks();
+    roomsToLeave.length = 0;
+  }
+});
+
 async function cleanupJoinedRooms(provider: MatrixProvider): Promise<void> {
   const joinedRoomIds = new Set(
     (await provider.listChats()).map((chat) => chat.chatId),
@@ -108,9 +136,14 @@ async function cleanupSmokeAccount(
   const invitedRoomIds = Object.keys(sync.rooms?.invite ?? {});
 
   await Promise.all(
-    [...joinedRoomIds, ...invitedRoomIds].map((roomId) =>
-      client.leaveRoom(roomId, "matrix smoke cleanup").catch(() => {}),
-    ),
+    roomsToLeave
+      .filter(
+        (roomId) =>
+          joinedRoomIds.includes(roomId) || invitedRoomIds.includes(roomId),
+      )
+      .map((roomId) =>
+        client.leaveRoom(roomId, "matrix smoke cleanup").catch(() => {}),
+      ),
   );
 
   if (!account.accountPassword) return;
@@ -780,9 +813,6 @@ async function connectParticipant(
       {
         homeserverUrl: config.homeserverUrl,
         accessToken: account.accessToken,
-        ...(account.accountPassword
-          ? { accountPassword: account.accountPassword }
-          : {}),
         ...(account.recoveryKey ? { recoveryKey: account.recoveryKey } : {}),
       },
       join(config.stateDir, name),
@@ -826,9 +856,6 @@ async function connectAdminConfiguredParticipant(
     `accessToken=${account.accessToken}`,
   ];
 
-  if (account.accountPassword) {
-    configureArgs.push("--set", `accountPassword=${account.accountPassword}`);
-  }
   if (account.recoveryKey) {
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
     const recoveryKeyFile = join(stateDir, "matrix-recovery-key.txt");
