@@ -91,6 +91,8 @@ export type ThreadContext = {
   root: {
     status: ThreadRootStatus;
     wasMentioned: boolean;
+    /** Transport-verified sender is the connected bot; false for unavailable roots. */
+    isOwnMessage: boolean;
     message?: ChatHistoryMessage;
   };
   history: {

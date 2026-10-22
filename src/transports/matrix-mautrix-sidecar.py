@@ -1006,6 +1006,7 @@ class Sidecar:
             "root": {
                 "status": "available",
                 "wasMentioned": was_bot_mentioned(str(root_content.get("body") or ""), self.bot_user_id, root_content),
+                "isOwnMessage": bool(self.bot_user_id) and str(getattr(root_event, "sender", "")) == self.bot_user_id,
                 "message": root_message,
             },
             "history": compact(
@@ -1675,6 +1676,7 @@ def thread_context(
                 {
                     "status": root_status,
                     "wasMentioned": was_mentioned,
+                    "isOwnMessage": False,
                     "message": message,
                 }
             ),

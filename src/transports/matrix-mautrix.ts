@@ -777,6 +777,10 @@ function asThreadContext(value: unknown): ThreadContext {
     root: {
       status: rootStatus,
       wasMentioned: value.root.wasMentioned === true,
+      isOwnMessage:
+        rootStatus === "available" &&
+        isChatHistoryMessage(value.root.message) &&
+        value.root.isOwnMessage === true,
       ...(isChatHistoryMessage(value.root.message)
         ? { message: value.root.message }
         : {}),
@@ -794,7 +798,7 @@ function asThreadContext(value: unknown): ThreadContext {
 
 function unavailableThreadContext(): ThreadContext {
   return {
-    root: { status: "unavailable", wasMentioned: false },
+    root: { status: "unavailable", wasMentioned: false, isOwnMessage: false },
     history: { messages: [], statuses: ["unavailable"] },
   };
 }

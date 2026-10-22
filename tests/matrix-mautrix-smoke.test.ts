@@ -809,7 +809,7 @@ runMatrixMautrixSmoke(
         deadlineMs: 10_000,
       }),
     ).toMatchObject({
-      root: { status: "available", wasMentioned: true },
+      root: { status: "available", wasMentioned: true, isOwnMessage: false },
       history: {
         statuses: ["complete"],
         messages: [
@@ -817,6 +817,28 @@ runMatrixMautrixSmoke(
           { messageId: requiredMessageId(activeThreadAtA) },
         ],
       },
+    });
+
+    // The same root is owned only from its sender's connected identity.
+    expect(
+      await accountB.provider.resolveThreadContext({
+        transport: "matrix",
+        chatId: groupRoomId,
+        threadRootId: requiredMessageId(groupMentionAtA),
+        invocationId: requiredMessageId(activeThreadAtA),
+      }),
+    ).toMatchObject({
+      root: { status: "available", wasMentioned: false, isOwnMessage: true },
+    });
+    expect(
+      await accountA.provider.resolveThreadContext({
+        transport: "matrix",
+        chatId: groupRoomId,
+        threadRootId: `$missing-${runId}`,
+        invocationId: requiredMessageId(activeThreadAtA),
+      }),
+    ).toMatchObject({
+      root: { status: "unavailable", isOwnMessage: false },
     });
 
     const inactiveRootMessage = `umg mautrix inactive root ${runId}`;
@@ -870,7 +892,7 @@ runMatrixMautrixSmoke(
         deadlineMs: 10_000,
       }),
     ).toMatchObject({
-      root: { status: "available", wasMentioned: false },
+      root: { status: "available", wasMentioned: false, isOwnMessage: false },
       history: {
         statuses: ["complete"],
         messages: [

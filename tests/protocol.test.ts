@@ -106,6 +106,7 @@ test("models thread context resolution", () => {
     root: {
       status: "available",
       wasMentioned: true,
+      isOwnMessage: false,
       message: {
         transport: "matrix",
         chatId: query.chatId,

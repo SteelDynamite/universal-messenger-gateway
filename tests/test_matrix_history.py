@@ -104,6 +104,42 @@ class HistoryTests(unittest.IsolatedAsyncioTestCase):
         instance.crypto = None
         return instance
 
+    async def test_thread_root_ownership_uses_connected_identity(self):
+        for sender, bot_id, expected in [
+            ("@bot:example.org", "@bot:example.org", True),
+            ("@other-bot:example.org", "@bot:example.org", False),
+            ("@user:example.org", "@bot:example.org", False),
+            ("", "", False),
+        ]:
+            with self.subTest(sender=sender, bot_id=bot_id):
+                root = event(1, "bot-authored root without a mention")
+                root.sender = sender
+                instance = self.make_sidecar({"!a": [root]})
+                instance.bot_user_id = bot_id
+                result = await instance.resolve_thread_context({"chatId": "!a", "threadRootId": "$1", "invocationId": "$1"})
+                self.assertEqual(result["root"]["status"], "available")
+                self.assertIs(result["root"]["isOwnMessage"], expected)
+                if bot_id:
+                    self.assertFalse(result["root"]["wasMentioned"])
+
+    async def test_unavailable_thread_roots_are_not_own_messages(self):
+        for kind in ["missing", "redacted", "undecryptable", "edit", "empty"]:
+            with self.subTest(kind=kind):
+                root = event(1, encrypted=kind == "undecryptable")
+                root.sender = "@bot:example.org"
+                if kind == "redacted":
+                    root.unsigned = {"redacted_because": {"event_id": "$redaction"}}
+                elif kind == "edit":
+                    root.content["m.new_content"] = {"body": "edited"}
+                elif kind == "empty":
+                    root.content = {}
+                instance = self.make_sidecar({"!a": [] if kind == "missing" else [root]})
+                instance.bot_user_id = "@bot:example.org"
+                result = await instance.resolve_thread_context({"chatId": "!a", "threadRootId": "$1", "invocationId": "$1"})
+                self.assertNotEqual(result["root"]["status"], "available")
+                self.assertIs(result["root"]["isOwnMessage"], False)
+                self.assertNotIn("message", result["root"])
+
     async def traverse(self, instance, command):
         messages, results = [], []
         for _ in range(100):

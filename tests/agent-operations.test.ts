@@ -148,6 +148,7 @@ class AgentTransport implements TransportProvider {
       root: {
         status: "available" as const,
         wasMentioned: true,
+        isOwnMessage: false,
         message: historyMessage,
       },
       history: {
@@ -226,7 +227,7 @@ test("agent history and metadata operations use bounded normalized transport dat
       invocationId: "$event",
     }),
   ).resolves.toMatchObject({
-    root: { status: "available", wasMentioned: true },
+    root: { status: "available", wasMentioned: true, isOwnMessage: false },
     history: { statuses: ["complete"] },
   });
   expect(transport.threadContextQueries).toEqual([
