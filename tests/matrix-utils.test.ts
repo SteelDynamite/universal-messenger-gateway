@@ -158,6 +158,25 @@ describe("formatForMatrix", () => {
     expect(result.formattedBody).not.toContain("<script");
   });
 
+  it.each([
+    '<div><noscript></div><img src="https://evil.example/tracker.gif"></noscript>',
+    '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">',
+    '<meta http-equiv="refresh" content="0;url=data:text/html,unsafe">',
+    '<svg><a href="https://example.org"><svg:animate attributeName="href" values="javascript:alert(1)"/></a></svg>',
+  ])(
+    "keeps sanitizer advisory payloads within the Matrix subset: %s",
+    (text) => {
+      const result = formatForMatrix(text);
+      expect(result.body).toBe(text);
+      expect(result.formattedBody ?? "").not.toMatch(
+        /<(?:meta|svg|svg:animate|noscript)\b/i,
+      );
+      expect(result.formattedBody ?? "").not.toMatch(
+        /(?:href|src)="(?:javascript:|data:|https:\/\/evil\.example)/i,
+      );
+    },
+  );
+
   it("allows mxc images from raw Matrix HTML only", () => {
     const result = formatForMatrix(
       '<img src="https://example.com/tracker.png" alt="remote"><img src="mxc://example.org/id" alt="mxc" onerror="bad">',
